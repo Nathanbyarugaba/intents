@@ -2000,7 +2000,6 @@ dependencies = [
  "defuse-crypto",
  "defuse-wallet-core",
  "ed25519-dalek",
- "impl-tools 0.12.0",
  "near-global-contracts",
  "rand 0.10.1",
 ]

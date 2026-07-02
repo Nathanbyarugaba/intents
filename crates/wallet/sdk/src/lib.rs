@@ -4,17 +4,21 @@ mod nonces;
 
 pub use self::nonces::*;
 
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use borsh::BorshSerialize;
 pub use defuse_wallet_core::*;
 
-use impl_tools::autoimpl;
 use near_global_contracts::{GlobalContractId, StateInit, StateInitV1};
 use rand::{make_rng, rngs::SmallRng};
 
 pub const MAINNET: &str = "mainnet";
 
+#[must_use = "`.build()` the signer"]
+#[derive(Debug)]
 pub struct WalletSignerBuilder<S: Signer> {
     code: GlobalContractId,
     state: State<S::PublicKey>,
@@ -31,21 +35,18 @@ impl<S: Signer> WalletSignerBuilder<S> {
         }
     }
 
-    #[must_use]
     #[inline]
     pub fn subwallet_id(mut self, subwallet_id: u32) -> Self {
         self.state = self.state.subwallet_id(subwallet_id);
         self
     }
 
-    #[must_use]
     #[inline]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.state = self.state.timeout(timeout);
         self
     }
 
-    #[must_use]
     #[inline]
     pub fn extensions(
         mut self,
@@ -64,20 +65,20 @@ impl<S: Signer> WalletSignerBuilder<S> {
         .into()
     }
 
+    #[inline]
     pub fn build(self) -> WalletSigner<S> {
         WalletSigner {
             chain_id: MAINNET.to_string(),
             account_id: self.deterministic_state_init().derive_account_id(),
             code: self.code,
             state: self.state,
-            nonces: ConcurrentNonces::new(make_rng()),
+            nonces: Arc::new(Mutex::new(ConcurrentNonces::new(make_rng()))),
             signer: self.signer,
         }
     }
 }
 
-#[derive(Debug)]
-#[autoimpl(Deref using self.state)]
+#[derive(Debug, Clone)]
 pub struct WalletSigner<S: Signer> {
     chain_id: String,
 
@@ -86,7 +87,7 @@ pub struct WalletSigner<S: Signer> {
 
     account_id: AccountId,
 
-    nonces: ConcurrentNonces<SmallRng>,
+    nonces: Arc<Mutex<ConcurrentNonces<SmallRng>>>,
     signer: S,
 }
 
@@ -99,21 +100,25 @@ where
         WalletSignerBuilder::new(code, signer)
     }
 
+    #[must_use]
     #[inline]
     pub fn new(code: GlobalContractId, signer: S) -> Self {
         Self::builder(code, signer).build()
     }
 
     #[must_use]
+    #[inline]
     pub fn with_chain_id(mut self, chain_id: impl Into<String>) -> Self {
         self.chain_id = chain_id.into();
         self
     }
 
+    #[inline]
     pub const fn chain_id(&self) -> &str {
         self.chain_id.as_str()
     }
 
+    #[inline]
     pub fn deterministic_state_init(&self) -> StateInit {
         let s = StateInit::V1(StateInitV1 {
             code: self.code.clone(),
@@ -125,26 +130,36 @@ where
         s
     }
 
+    /// Get timeout for nonces
+    #[inline]
+    pub const fn timeout(&self) -> Duration {
+        self.state.nonces.timeout()
+    }
+
+    #[inline]
     pub const fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
+    #[inline]
     pub const fn signer(&self) -> &S {
         &self.signer
     }
 
-    pub fn sign(&mut self, request: Request) -> Result<(RequestMessage, Proof), S::Error> {
+    #[inline]
+    pub fn sign(&self, request: Request) -> Result<(RequestMessage, Proof), S::Error> {
         let msg = self.wrap_request_msg(request);
         let signature = self.signer.sign(&msg)?;
         Ok((msg, signature))
     }
 
     /// Wraps [`Request`] in [`RequestMessage`] for signing
-    fn wrap_request_msg(&mut self, request: Request) -> RequestMessage {
+    #[inline]
+    fn wrap_request_msg(&self, request: Request) -> RequestMessage {
         RequestMessage {
             chain_id: self.chain_id.clone(),
             signer_id: self.account_id().clone(),
-            nonce: self.nonces.next(),
+            nonce: self.nonces.lock().unwrap().next(),
             // set `created_at` slightly before the actual time of signing,
             // so it doesn't fail on-chain if arrives too fast.
             created_at: Timestamp::now() - self.optimal_lag(),
@@ -154,25 +169,16 @@ where
     }
 
     /// Returns an optimal lag for `created_at`, so it doesn't fail on-chain.
+    #[inline]
     fn optimal_lag(&self) -> Duration {
-        Duration::from_mins(1).min(self.state.nonces.timeout() / 5)
+        Duration::from_mins(1).min(self.timeout() / 5)
     }
-}
 
-impl<S> Clone for WalletSigner<S>
-where
-    S: Signer + Clone,
-    S::PublicKey: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            chain_id: self.chain_id.clone(),
-            code: self.code.clone(),
-            state: self.state.clone(),
-            account_id: self.account_id.clone(),
-            nonces: ConcurrentNonces::new(make_rng()),
-            signer: self.signer.clone(),
-        }
+    /// Reseed the nonces and invalidate the current block.
+    /// Use it in case of a collision.
+    #[inline]
+    pub fn reseed_nonces(&self) {
+        *self.nonces.lock().unwrap() = ConcurrentNonces::new(make_rng());
     }
 }
 
@@ -184,6 +190,5 @@ pub trait Signer {
     type Error;
 
     fn public_key(&self) -> Self::PublicKey;
-    // TODO: async
     fn sign(&self, msg: &RequestMessage) -> Result<Proof, Self::Error>;
 }
