@@ -1,0 +1,58 @@
+lints.workspace = true
+
+[package]
+name = "defuse-wallet-webauthn"
+edition.workspace = true
+version = "0.1.0"
+rust-version.workspace = true
+repository.workspace = true
+readme = "../README.md"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+defuse-crypto = { workspace = true, features = ["serde"] }
+defuse-wallet = { workspace = true, features = ["borsh", "digest", "serde"] }
+defuse-webauthn.workspace = true
+
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+borsh = { workspace = true, features = ["derive"], optional = true }
+schemars = { workspace = true, features = ["derive"], optional = true }
+
+[features]
+ed25519 = ["defuse-crypto/ed25519", "defuse-webauthn/ed25519"]
+p256 = ["defuse-crypto/p256", "defuse-webauthn/p256"]
+
+abi = [
+  "borsh-schema",
+  "defuse-crypto/abi",
+  "defuse-webauthn/abi",
+  "schemars-v0_8",
+]
+arbitrary = [
+  "defuse-crypto/arbitrary",
+  "defuse-webauthn/arbitrary",
+  "dep:arbitrary",
+]
+borsh = ["defuse-crypto/borsh", "defuse-webauthn/borsh", "dep:borsh"]
+borsh-schema = [
+  "borsh",
+  "borsh/unstable__schema",
+  "defuse-crypto/borsh-schema",
+  "defuse-webauthn/borsh-schema",
+]
+schemars-v0_8 = [
+  "defuse-crypto/schemars-v0_8",
+  "defuse-webauthn/schemars-v0_8",
+  "dep:schemars",
+]
+
+[dev-dependencies]
+defuse-wallet-webauthn = { path = ".", features = ["abi", "ed25519", "p256"] }
+
+hex-literal.workspace = true
+rstest.workspace = true

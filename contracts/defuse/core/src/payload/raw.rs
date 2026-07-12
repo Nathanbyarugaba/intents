@@ -1,18 +1,22 @@
-use defuse_crypto::{Curve, Ed25519, Payload, SignedPayload, VerifiableCurve, serde::AsCurve};
+use defuse_crypto::{
+    Curve,
+    ed25519::{Ed25519, Ed25519PublicKey, Ed25519Signature},
+};
 use defuse_digest::{Digest, sha2::Sha256};
-use near_sdk::{near, serde::de::DeserializeOwned, serde_json};
+use near_sdk::{serde::de::DeserializeOwned, serde_json};
+use serde::{Deserialize, Serialize};
+
+use crate::payload::{Payload, SignedPayload};
 
 use super::ExtractDefusePayload;
 
-#[near(serializers = [borsh, json])]
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "abi", derive(::schemars::JsonSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedRawEd25519Payload {
     pub payload: String,
 
-    #[serde_as(as = "AsCurve<Ed25519>")]
-    pub public_key: <Ed25519 as Curve>::PublicKey,
-    #[serde_as(as = "AsCurve<Ed25519>")]
-    pub signature: <Ed25519 as Curve>::Signature,
+    pub public_key: Ed25519PublicKey,
+    pub signature: Ed25519Signature,
 }
 
 impl Payload for SignedRawEd25519Payload {
@@ -23,11 +27,17 @@ impl Payload for SignedRawEd25519Payload {
 }
 
 impl SignedPayload for SignedRawEd25519Payload {
-    type PublicKey = <Ed25519 as Curve>::PublicKey;
+    type PublicKey = Ed25519PublicKey;
 
     #[inline]
     fn verify(&self) -> Option<Self::PublicKey> {
-        Ed25519::verify(&self.signature, self.payload.as_bytes(), &self.public_key)
+        Ed25519::verify(
+            &self.public_key.try_into().ok()?,
+            self.payload.as_bytes(),
+            &self.signature.into(),
+        )
+        .then_some(&self.public_key)
+        .copied()
     }
 }
 

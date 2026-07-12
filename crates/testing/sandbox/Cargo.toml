@@ -20,15 +20,13 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 
-defuse = { workspace = true, optional = true, features = ["contract"] }
+defuse = { workspace = true, optional = true, features = ["contract", "near-kit"] }
 defuse-escrow-swap = { workspace = true, optional = true, features = ["auth_call"] }
 defuse-global-deployer = { workspace = true, optional = true }
-defuse-nep413 = { workspace = true, optional = true, features = ["near-kit", "serde"] }
 defuse-outlayer-app = { workspace = true, optional = true }
 defuse-poa-factory = { workspace = true, optional = true, features = ["contract"] }
 defuse-test-utils = { workspace = true, optional = true }
-defuse-wallet-client = { workspace = true, optional = true }
-defuse-wallet-sdk = { workspace = true, optional = true, features = ["json"] }
+defuse-wallet-sdk = { workspace = true, optional = true, features = ["json", "near-kit"] }
 
 near-sdk = { workspace = true, features = ["unit-testing"] }
 
@@ -36,10 +34,10 @@ near-sdk = { workspace = true, features = ["unit-testing"] }
 ignored = ["near-sdk"] # needed only for unit-tesing
 
 [features]
-defuse = ["dep:defuse", "dep:defuse-nep413", "dep:defuse-test-utils"]
+defuse = ["dep:defuse", "dep:defuse-test-utils"]
 deployer = ["dep:defuse-global-deployer"]
 escrow = ["dep:defuse-escrow-swap"]
 imt = ["defuse", "defuse-test-utils?/imt", "defuse/imt"]
 outlayer = ["dep:defuse-outlayer-app"]
 poa = ["dep:defuse-poa-factory"]
-wallet = ["dep:defuse-wallet-client", "dep:defuse-wallet-sdk"]
+wallet = ["dep:defuse-wallet-sdk"]

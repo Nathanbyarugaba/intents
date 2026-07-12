@@ -1,6 +1,6 @@
 use std::{borrow::Cow, rc::Rc, sync::Arc};
 
-use defuse_kdf_crypto::Curve;
+use defuse_crypto::{Curve, RecoverableCurve};
 use impl_tools::autoimpl;
 
 use crate::{BoxSchema, Derive, DeriveExt, Schema};
@@ -10,6 +10,8 @@ use crate::{BoxSchema, Derive, DeriveExt, Schema};
 /// A signer that can sign messages by **internally** deriving signing keys
 /// according to its public key derivation [schema](DeriveSigner::schema).
 pub trait DeriveSigner<C: Curve, P> {
+    // TODO: type Error;
+
     /// [`Schema`] for public key derivation.
     /// See [`.schema()`](DeriveSigner::schema) for details.
     type Schema<'a>: Schema<P, Output = C::PublicKey>
@@ -33,10 +35,14 @@ pub trait DeriveSigner<C: Curve, P> {
     /// Sign given message with a secret key **internally** derived
     /// for given `path` according to [`schema`](DeriveSigner::schema).
     ///
-    /// **NOTE**: the returned signatures MIGHT be non-deterministic, i.e.
-    /// implementations MAY return different signatures for the same
-    /// `path` and `msg`.
-    fn derive_sign(&self, path: P, msg: &C::Message) -> C::Signature;
+    /// **NOTE**:
+    /// * Implementations MAY require `msg` to be prehash (i.e. output
+    ///   of cryptographic hash function) of a fixed length and fail
+    ///   otherwise. Check corresponding docs before using.
+    /// * The returned signatures MIGHT be non-deterministic, i.e.
+    ///   implementations MAY return different signatures for the same
+    ///   `path` and `msg`.
+    fn derive_sign(&self, path: P, msg: &[u8]) -> C::Signature;
 
     /// Helper method to [derive](Schema::derive_path) public key for given
     /// `path` via [`.schema()`](DeriveSigner::Schema)
@@ -44,6 +50,24 @@ pub trait DeriveSigner<C: Curve, P> {
     fn derive_public_key(&self, path: P) -> C::PublicKey {
         self.schema().derive_path(path)
     }
+}
+
+/// A [signer](DeriveSigner) that can recoverably sign messages by
+/// **internally** deriving signing keys.
+pub trait RecoverableDeriveSigner<C: RecoverableCurve, P>: DeriveSigner<C, P> {
+    /// Recoveryably [sign](DeriveSigner::derive_sign) given message with a
+    /// secret key **internally** derived for given `path` according to
+    /// [`schema`](DeriveSigner::schema) and return [signature](Curve::Signature)
+    /// along with [recovery id](RecoverableCurve::RecoveryId).
+    ///
+    /// **NOTE**:
+    /// * Implementations MAY require `msg` to be prehash (i.e. output
+    ///   of cryptographic hash function) of a fixed length and fail
+    ///   otherwise. Check corresponding docs before using.
+    /// * The returned signatures MIGHT be non-deterministic, i.e.
+    ///   implementations MAY return different signatures for the same
+    ///   `path` and `msg`.
+    fn derive_sign_recoverable(&self, path: P, msg: &[u8]) -> (C::Signature, C::RecoveryId);
 }
 
 impl<C, P, S, D> DeriveSigner<C, P> for Derive<S, D>
@@ -63,7 +87,7 @@ where
     }
 
     #[inline]
-    fn derive_sign(&self, path: P, msg: &C::Message) -> C::Signature {
+    fn derive_sign(&self, path: P, msg: &[u8]) -> C::Signature {
         self.0.derive_sign(self.1.derive_path(path), msg)
     }
 }
@@ -74,7 +98,7 @@ pub trait DynDeriveSigner<C: Curve, P> {
     where
         P: 'a;
 
-    fn derive_sign(&self, path: P, msg: &C::Message) -> C::Signature;
+    fn derive_sign(&self, path: P, msg: &[u8]) -> C::Signature;
 }
 
 impl<C, P, S> DynDeriveSigner<C, P> for S
@@ -91,7 +115,7 @@ where
     }
 
     #[inline]
-    fn derive_sign(&self, path: P, msg: &C::Message) -> C::Signature {
+    fn derive_sign(&self, path: P, msg: &[u8]) -> C::Signature {
         DeriveSigner::<C, P>::derive_sign(self, path, msg)
     }
 }
@@ -108,7 +132,7 @@ impl<C: Curve, P> DeriveSigner<C, P> for dyn DynDeriveSigner<C, P> {
     }
 
     #[inline]
-    fn derive_sign(&self, path: P, msg: &C::Message) -> C::Signature {
+    fn derive_sign(&self, path: P, msg: &[u8]) -> C::Signature {
         DynDeriveSigner::<C, P>::derive_sign(self, path, msg)
     }
 }
@@ -118,7 +142,7 @@ impl<C: Curve, P> DeriveSigner<C, P> for dyn DynDeriveSigner<C, P> {
 pub fn assert_signer_roundtrip<C, S, P>(
     signer: &S,
     path: P,
-    msg: &C::Message,
+    msg: &[u8],
 ) -> (C::PublicKey, C::Signature)
 where
     C: Curve,

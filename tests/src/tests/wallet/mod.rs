@@ -1,23 +1,23 @@
 mod no_sign;
 
-use std::borrow::Cow;
-
+use defuse_core::crypto::ed25519::{Ed25519PublicKey, ed25519_dalek};
+use defuse_rand_compat::rand_core_0_6::OsRng;
 use defuse_sandbox::{
     account::Account,
     extensions::wallet::{
-        WExecuteExtensionArgs, WExecuteSignedArgs, Wallet, WalletExt,
-        sdk::{
-            NearPromise, Request, State, WalletOp, WalletSigner,
-            actions::FunctionCall,
-            ed25519::ed25519_dalek::{self, ed25519::signature::rand_core::OsRng},
-        },
+        WalletExt,
+        sdk::{MAINNET, NearPromise, Request, State, Wallet, WalletOp, actions::FunctionCall},
     },
     global_contract::GlobalContract,
     kit::{Finality::Optimistic, Gas, GlobalContractId, Near, NearToken, StateInit, StateInitV1},
     root,
 };
-use defuse_test_utils::wasms::WALLET_WASM;
-use defuse_wallet_relayer::{WalletRelayRequest, WalletRelayer};
+use defuse_test_utils::wasms::WALLET_ED25519_WASM;
+use defuse_wallet_ed25519::WalletEd25519;
+use defuse_wallet_relayer::{
+    WalletRelayRequest, WalletRelayer,
+    wallet::client::{WExecuteExtensionArgs, WExecuteSignedArgs, WalletContract},
+};
 use futures::future::join_all;
 use impl_tools::autoimpl;
 use rstest::{fixture, rstest};
@@ -46,11 +46,13 @@ async fn test_signed(#[future] env: Env) {
                     NearPromise::new(receiver.account_id()).transfer(NearToken::from_yoctonear(2)),
                     NearPromise::new(receiver.account_id()).transfer(NearToken::from_yoctonear(3)),
                 ]),
+            MAINNET,
         )
+        .await
         .unwrap();
 
     let request = WalletRelayRequest::new(msg.clone(), &proof)
-        .deterministic_state_init(wallet.deterministic_state_init());
+        .deterministic_state_init(wallet.deterministic_state_init().clone());
 
     assert!(
         env.relayer
@@ -93,7 +95,7 @@ async fn test_rotate(#[future] env: Env) {
                 }])
                 .external([NearPromise::new(new_wallet.account_id())
                     .deterministic_state_init(
-                        new_wallet.deterministic_state_init(),
+                        new_wallet.deterministic_state_init().clone(),
                         NearToken::ZERO,
                     )
                     .function_call(
@@ -108,33 +110,34 @@ async fn test_rotate(#[future] env: Env) {
                                         .function_call(
                                             FunctionCall::name("w_execute_extension")
                                                 .attach_deposit(NearToken::from_yoctonear(1))
-                                                .args_json(WExecuteExtensionArgs {
-                                                    request: Cow::Owned(Request::new().internal([
+                                                .args_json(WExecuteExtensionArgs::from(
+                                                    Request::new().internal([
                                                         WalletOp::SetSignatureMode {
                                                             enable: false,
                                                         },
-                                                    ])),
-                                                })
+                                                    ]),
+                                                ))
                                                 .gas(Gas::from_tgas(10)),
                                         )]),
+                                        MAINNET,
                                     )
+                                    .await
                                     .unwrap();
 
-                                WExecuteSignedArgs {
-                                    msg: Cow::Owned(msg),
-                                    proof: proof.into(),
-                                }
+                                WExecuteSignedArgs::from((msg, proof))
                             })
                             .gas(Gas::from_tgas(20)),
                     )]),
+            MAINNET,
         )
+        .await
         .unwrap();
 
     assert!(
         env.relayer
             .w_execute_signed(
                 WalletRelayRequest::new(msg, proof)
-                    .deterministic_state_init(old_wallet.deterministic_state_init()),
+                    .deterministic_state_init(old_wallet.deterministic_state_init().clone()),
                 NearToken::from_yoctonear(1),
                 None,
             )
@@ -144,7 +147,7 @@ async fn test_rotate(#[future] env: Env) {
     );
 
     assert!(
-        !env.contract::<Wallet>(old_wallet.account_id())
+        !env.contract::<WalletContract>(old_wallet.account_id())
             .w_is_signature_allowed()
             .finality(Optimistic)
             .await
@@ -152,7 +155,7 @@ async fn test_rotate(#[future] env: Env) {
     );
 
     {
-        let (msg, proof) = old_wallet.sign(Request::default()).unwrap();
+        let (msg, proof) = old_wallet.sign(Request::default(), MAINNET).await.unwrap();
 
         assert!(
             env.relayer
@@ -169,12 +172,12 @@ async fn test_rotate(#[future] env: Env) {
             Request::new().external([NearPromise::new(old_wallet.account_id()).function_call(
                 FunctionCall::name("w_execute_extension")
                     .attach_deposit(NearToken::from_yoctonear(1))
-                    .args_json(WExecuteExtensionArgs {
-                        request: Cow::Owned(Request::new()),
-                    })
+                    .args_json(WExecuteExtensionArgs::from(Request::new()))
                     .gas(Gas::from_tgas(10)),
             )]),
+            MAINNET,
         )
+        .await
         .unwrap();
 
     assert!(
@@ -196,7 +199,7 @@ async fn test_extension(#[future] env: Env) {
 
     let wallet_state_init = StateInit::V1(StateInitV1 {
         code: env.wallet_global_id.clone(),
-        data: State::<[u8; 32]>::default()
+        data: State::<Ed25519PublicKey>::new(Ed25519PublicKey([0u8; 32]))
             .extensions([extension.account_id()])
             .as_storage(),
     });
@@ -239,7 +242,7 @@ async fn test_no_storage_staking(#[future] env: Env) {
     let wallet = env.generate_wallet();
 
     let wallet_id = wallet.account_id().clone();
-    let wallet_state_init = wallet.deterministic_state_init();
+    let wallet_state_init = wallet.deterministic_state_init().clone();
 
     // do state_init in advance
     env.transaction(wallet_id.clone())
@@ -250,7 +253,7 @@ async fn test_no_storage_staking(#[future] env: Env) {
         .unwrap();
 
     join_all((0..wallet.timeout().as_secs() * 2).map(|_n| async {
-        let (msg, proof) = wallet.sign(Request::new()).unwrap();
+        let (msg, proof) = wallet.sign(Request::new(), MAINNET).await.unwrap();
         let req = WalletRelayRequest::new(msg, proof);
         assert!(
             env.relayer
@@ -273,8 +276,8 @@ struct Env {
 }
 
 impl Env {
-    pub fn generate_wallet(&self) -> WalletSigner<ed25519_dalek::SigningKey> {
-        WalletSigner::new(
+    pub fn generate_wallet(&self) -> Wallet<WalletEd25519, ed25519_dalek::SigningKey> {
+        Wallet::new(
             self.wallet_global_id.clone(),
             ed25519_dalek::SigningKey::generate(&mut OsRng),
         )
@@ -284,7 +287,7 @@ impl Env {
 #[fixture]
 #[awt]
 async fn env(
-    #[default(WALLET_WASM.clone())] wasm: impl Into<Vec<u8>>,
+    #[default(WALLET_ED25519_WASM.clone())] wasm: impl Into<Vec<u8>>,
     #[future] root: Near,
 ) -> Env {
     // wallet.0.test

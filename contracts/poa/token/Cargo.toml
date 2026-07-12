@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "defuse-poa-token"
 version = "0.1.0"
@@ -8,8 +10,16 @@ repository.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[lints]
-workspace = true
+[dependencies]
+defuse-admin-utils.workspace = true
+
+near-contract-standards.workspace = true
+near-plugins.workspace = true
+near-sdk = { workspace = true, features = ["unstable"] }
+
+[features]
+contract = []
+no-registration = []
 
 [package.metadata.near.reproducible_build]
 image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
@@ -35,14 +45,3 @@ container_build_command = [
   "--locked",
   "--features=contract,no-registration",
 ]
-
-[dependencies]
-defuse-admin-utils.workspace = true
-
-near-contract-standards.workspace = true
-near-plugins.workspace = true
-near-sdk = { workspace = true, features = ["unstable"] }
-
-[features]
-contract = []
-no-registration = []

@@ -10,16 +10,18 @@ pub mod webauthn;
 use core::convert::Infallible;
 
 use impl_tools::autoimpl;
-use near_sdk::{AccountId, near};
-use serde_with::base64::Base64;
+use near_sdk::{AccountId, CryptoHash};
+use serde::{Deserialize, Serialize};
+use serde_with::{base64::Base64, serde_as};
 
 use crate::{Nonce, Timestamp};
 
 // TODO: add version
-#[near(serializers = [json])]
+#[serde_as]
 #[autoimpl(Deref using self.message)]
 #[autoimpl(DerefMut using self.message)]
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "abi", derive(::schemars::JsonSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefusePayload<T> {
     pub signer_id: AccountId,
     pub verifying_contract: AccountId,
@@ -45,6 +47,26 @@ impl<T> ExtractDefusePayload<T> for DefusePayload<T> {
     fn extract_defuse_payload(self) -> Result<Self, Self::Error> {
         Ok(self)
     }
+}
+
+/// Data that can be deterministically hashed for signing or verification.
+///
+/// Implementations of this trait typically represent a message formatted
+/// according to an external signing standard. The [`.hash()`](Self::hash)
+/// method returns the digest that should be signed or used for verification.
+pub trait Payload {
+    fn hash(&self) -> CryptoHash;
+}
+
+/// Extension of [`Payload`] for types that include a signature.
+///
+/// Implementers verify the signature and, when successful, return the
+/// signer's public key. This trait is mainly intended for internal use and
+/// does not constitute a stable public API.
+pub trait SignedPayload: Payload {
+    type PublicKey;
+
+    fn verify(&self) -> Option<Self::PublicKey>;
 }
 
 #[cfg(feature = "abi")]

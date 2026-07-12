@@ -1,10 +1,47 @@
-use defuse_ton_connect::{SignedTonConnectPayload, TonConnectPayload, TonConnectPayloadSchema};
-use near_sdk::{
-    serde::de::{DeserializeOwned, Error},
-    serde_json,
+use defuse_crypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
+use defuse_ton_connect::TonConnect;
+pub use defuse_ton_connect::{TonConnectPayload, TonConnectPayloadSchema};
+use near_sdk::CryptoHash;
+use serde::{
+    Deserialize, Serialize,
+    de::{DeserializeOwned, Error},
 };
 
+use crate::payload::{Payload, SignedPayload};
+
 use super::{DefusePayload, ExtractDefusePayload};
+
+#[cfg_attr(feature = "abi", derive(::schemars::JsonSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedTonConnectPayload {
+    #[serde(flatten)]
+    pub payload: TonConnectPayload,
+
+    pub public_key: Ed25519PublicKey,
+    pub signature: Ed25519Signature,
+}
+
+impl Payload for SignedTonConnectPayload {
+    #[inline]
+    fn hash(&self) -> CryptoHash {
+        self.payload.try_prehash().expect("ton-connect hash")
+    }
+}
+
+impl SignedPayload for SignedTonConnectPayload {
+    type PublicKey = Ed25519PublicKey;
+
+    #[inline]
+    fn verify(&self) -> Option<Self::PublicKey> {
+        TonConnect::verify(
+            &self.public_key.try_into().ok()?,
+            &self.payload,
+            &self.signature.into(),
+        )
+        .then_some(&self.public_key)
+        .copied()
+    }
+}
 
 impl<T> ExtractDefusePayload<T> for SignedTonConnectPayload
 where
@@ -25,8 +62,7 @@ where
     type Error = serde_json::Error;
 
     fn extract_defuse_payload(self) -> Result<DefusePayload<T>, Self::Error> {
-        #[allow(irrefutable_let_patterns)]
-        let TonConnectPayloadSchema::Text(text) = self.payload else {
+        let TonConnectPayloadSchema::Text { text } = self.payload else {
             return Err(Error::custom("only text payload supported"));
         };
 

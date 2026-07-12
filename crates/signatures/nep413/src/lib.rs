@@ -1,24 +1,71 @@
+//! [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md)
+//! Offchain Signing Standard
+
 use core::fmt::Display;
 
-use defuse_crypto::{Curve, Ed25519};
-use defuse_nep461::SignedMessageNep;
-use impl_tools::autoimpl;
+use borsh::{BorshDeserialize, BorshSerialize};
+use defuse_crypto::{Curve, ed25519::Ed25519};
+use defuse_digest::{Digest, sha2::Sha256};
+use defuse_nep461::{OffchainMessage, SignedMessageNep};
+use digest_io::IoWrapper;
 
-/// See [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md)
-#[cfg_attr(
-    feature = "borsh",
-    derive(::borsh::BorshSerialize, ::borsh::BorshDeserialize),
-    cfg_attr(feature = "abi", derive(::borsh::BorshSchema))
-)]
+/// [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md)
+/// Offchain Signing Standard
+pub struct Nep413;
+
+impl Nep413 {
+    /// Verify signature over given payload for given public key according to
+    /// [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md).
+    #[must_use = "check if verification passed"]
+    #[inline]
+    pub fn verify(
+        public_key: &<Ed25519 as Curve>::PublicKey,
+        payload: &Nep413Payload,
+        signature: &<Ed25519 as Curve>::Signature,
+    ) -> bool {
+        Ed25519::verify(public_key, &Self::prehash(payload), signature)
+    }
+
+    /// Derive prehash for signing.
+    #[inline]
+    pub fn prehash(payload: &Nep413Payload) -> [u8; 32] {
+        let mut hasher = IoWrapper(Sha256::new());
+
+        // serialize directly to hasher
+        borsh::to_writer(&mut hasher, &(Self::OFFCHAIN_PREFIX_TAG, payload))
+            .unwrap_or_else(|_| unreachable!());
+
+        hasher.0.finalize().into()
+    }
+}
+
+impl SignedMessageNep for Nep413 {
+    /// NEP number used to derive offchain prefix tag according to
+    /// [NEP-461](https://github.com/near/NEPs/pull/461).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use defuse_nep413::Nep413;
+    /// use defuse_nep461::OffchainMessage;
+    ///
+    /// assert_eq!(Nep413::OFFCHAIN_PREFIX_TAG, 2147484061);
+    /// ```
+    const NEP_NUMBER: u32 = 413;
+}
+
+/// [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md) payload
 #[cfg_attr(
     feature = "serde",
     ::cfg_eval::cfg_eval,
     ::serde_with::serde_as,
     derive(::serde::Serialize, ::serde::Deserialize),
-    cfg_attr(feature = "abi", derive(::schemars::JsonSchema)),
+    cfg_attr(feature = "schemars-v0_8", derive(::schemars::JsonSchema)),
     serde(rename_all = "camelCase")
 )]
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+#[cfg_attr(feature = "borsh-schema", derive(::borsh::BorshSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Nep413Payload {
     pub message: String,
 
@@ -34,16 +81,13 @@ pub struct Nep413Payload {
     pub callback_url: Option<String>,
 }
 
-impl SignedMessageNep for Nep413Payload {
-    const NEP_NUMBER: u32 = 413;
-}
-
 impl Nep413Payload {
+    #[must_use]
     #[inline]
-    pub fn new(message: String) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message,
-            nonce: Default::default(),
+            message: message.into(),
+            nonce: [0u8; 32],
             recipient: String::new(),
             callback_url: None,
         }
@@ -51,90 +95,30 @@ impl Nep413Payload {
 
     #[must_use]
     #[inline]
-    pub const fn with_nonce(mut self, nonce: [u8; 32]) -> Self {
-        self.nonce = nonce;
+    pub fn nonce(mut self, nonce: impl Into<[u8; 32]>) -> Self {
+        self.nonce = nonce.into();
         self
     }
 
     #[must_use]
     #[inline]
-    pub fn with_recipient<S>(mut self, recipient: S) -> Self
-    where
-        S: Display,
-    {
+    pub fn recipient(mut self, recipient: impl Display) -> Self {
         self.recipient = recipient.to_string();
         self
     }
 
     #[must_use]
     #[inline]
-    pub fn with_callback_url(mut self, callback_url: String) -> Self {
-        self.callback_url = Some(callback_url);
+    pub fn callback_url(mut self, callback_url: impl Into<String>) -> Self {
+        self.callback_url = Some(callback_url.into());
         self
-    }
-}
-
-#[cfg(feature = "borsh")]
-impl defuse_crypto::Payload for Nep413Payload {
-    #[inline]
-    fn hash(&self) -> defuse_crypto::CryptoHash {
-        use defuse_digest::{Digest, sha2::Sha256};
-        use defuse_nep461::OffchainMessage;
-        use digest_io::IoWrapper;
-
-        let mut hasher = IoWrapper(Sha256::new());
-        // serialize directly to hasher
-        borsh::to_writer(&mut hasher, &(Self::OFFCHAIN_PREFIX_TAG, self)).expect("borsh");
-        hasher.0.finalize().into()
-    }
-}
-
-#[cfg_attr(
-    feature = "serde",
-    ::cfg_eval::cfg_eval,
-    ::serde_with::serde_as,
-    derive(::serde::Serialize, ::serde::Deserialize),
-    cfg_attr(feature = "abi", derive(::schemars::JsonSchema))
-)]
-#[autoimpl(Deref using self.payload)]
-#[derive(Debug, Clone)]
-pub struct SignedNep413Payload {
-    pub payload: Nep413Payload,
-
-    #[cfg_attr(
-        feature = "serde",
-        serde_as(as = "defuse_crypto::serde::AsCurve<Ed25519>")
-    )]
-    pub public_key: <Ed25519 as Curve>::PublicKey,
-    #[cfg_attr(
-        feature = "serde",
-        serde_as(as = "defuse_crypto::serde::AsCurve<Ed25519>")
-    )]
-    pub signature: <Ed25519 as Curve>::Signature,
-}
-
-#[cfg(feature = "borsh")]
-impl defuse_crypto::Payload for SignedNep413Payload {
-    #[inline]
-    fn hash(&self) -> defuse_crypto::CryptoHash {
-        self.payload.hash()
-    }
-}
-
-#[cfg(feature = "near-contract")]
-impl defuse_crypto::SignedPayload for SignedNep413Payload {
-    type PublicKey = <Ed25519 as Curve>::PublicKey;
-
-    #[inline]
-    fn verify(&self) -> Option<Self::PublicKey> {
-        use defuse_crypto::{Payload, VerifiableCurve};
-        Ed25519::verify(&self.signature, &self.hash(), &self.public_key)
     }
 }
 
 #[cfg(feature = "near-kit")]
 const _: () = {
     impl From<Nep413Payload> for near_kit::nep413::SignMessageParams {
+        #[inline]
         fn from(payload: Nep413Payload) -> Self {
             Self {
                 message: payload.message,
@@ -146,3 +130,36 @@ const _: () = {
         }
     }
 };
+
+#[cfg(test)]
+mod tests {
+    use defuse_crypto::ed25519::ed25519_dalek::{
+        PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH, Signature, VerifyingKey,
+    };
+    use hex_literal::hex;
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(
+        hex!("e2e9cb7ac57cb46d4da1ce1d1cc2c33bdfe17407c517916b522724a8ea2c6c50"),
+        Nep413Payload {
+            message: "Hello, world!".to_string(),
+            nonce: [0u8; 32],
+            recipient: "intents.near".to_string(),
+            callback_url: None,
+        },
+        hex!("e2ff6254871a3fec1853c167b42f0f14248c4cf7fef5452dc24d8dbdc5c4bf183ab707322b4d782d5f5a05571bae476c5f7ee41c473f3002e600865e46b75d0f"),
+    )]
+    fn verify_ok(
+        #[case] public_key: [u8; PUBLIC_KEY_LENGTH],
+        #[case] payload: Nep413Payload,
+        #[case] signature: [u8; SIGNATURE_LENGTH],
+    ) {
+        let public_key = VerifyingKey::from_bytes(&public_key).unwrap();
+        let signature = Signature::from_bytes(&signature);
+
+        assert!(Nep413::verify(&public_key, &payload, &signature));
+    }
+}

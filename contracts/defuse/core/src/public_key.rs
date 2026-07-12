@@ -3,46 +3,42 @@ use core::{
     str::FromStr,
 };
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use defuse_crypto::{
-    Curve, CurveType, Ed25519, P256, P256UncompressedPublicKey, ParseCurveError, Secp256k1,
-    TypedCurve,
+    ed25519::{Ed25519, Ed25519PublicKey},
+    fmt::{ParseCurveError, TypedCurve, checked_base58_decode_array},
+    p256::{P256, P256UncompressedPublicKey},
+    secp256k1::{Secp256k1, Secp256k1UncompressedPublicKey},
 };
-use near_sdk::{AccountId, AccountIdRef, bs58, near};
+use defuse_digest::{Digest, sha3::Keccak256};
+use near_sdk::{AccountId, AccountIdRef};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 #[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
-#[near(serializers = [borsh(use_discriminant = true)])]
+#[cfg_attr(feature = "abi", derive(::borsh::BorshSchema))]
 #[derive(
-    Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, SerializeDisplay, DeserializeFromStr,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    SerializeDisplay,
+    DeserializeFromStr,
+    BorshSerialize,
+    BorshDeserialize,
+    derive_more::From,
 )]
-#[serde_with(crate = "::near_sdk::serde_with")]
+#[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum PublicKey {
-    Ed25519(<Ed25519 as Curve>::PublicKey) = 0,
-    Secp256k1(<Secp256k1 as Curve>::PublicKey) = 1,
+    Ed25519(Ed25519PublicKey) = 0,
+    Secp256k1(Secp256k1UncompressedPublicKey) = 1,
     P256(P256UncompressedPublicKey) = 2,
 }
 
 impl PublicKey {
-    #[inline]
-    pub const fn curve_type(&self) -> CurveType {
-        match self {
-            Self::Ed25519(_) => CurveType::Ed25519,
-            Self::Secp256k1(_) => CurveType::Secp256k1,
-            Self::P256(_) => CurveType::P256,
-        }
-    }
-
-    #[inline]
-    const fn data(&self) -> &[u8] {
-        #[allow(clippy::match_same_arms)]
-        match self {
-            Self::Ed25519(data) => data,
-            Self::Secp256k1(data) => data,
-            Self::P256(data) => &data.0,
-        }
-    }
-
     #[inline]
     pub fn to_implicit_account_id(&self) -> AccountId {
         match self {
@@ -52,12 +48,9 @@ impl PublicKey {
             }
             Self::Secp256k1(pk) => {
                 // https://ethereum.org/en/developers/docs/accounts/#account-creation
-                format!(
-                    "0x{}",
-                    hex::encode(&::near_sdk::env::keccak256_array(pk)[12..32])
-                )
+                format!("0x{}", hex::encode(&Keccak256::digest(pk)[12..32]))
             }
-            Self::P256(P256UncompressedPublicKey(pk)) => {
+            Self::P256(pk) => {
                 // In order to keep compatibility with all existing standards
                 // within Near ecosystem (e.g. NEP-245), we need our implicit
                 // account_ids to be fully backwards-compatible with Near's
@@ -74,8 +67,9 @@ impl PublicKey {
                 format!(
                     "0x{}",
                     hex::encode(
-                        &::near_sdk::env::keccak256_array([b"p256".as_slice(), pk].concat())
-                            [12..32]
+                        &Keccak256::new_with_prefix(b"p256")
+                            .chain_update(pk)
+                            .finalize()[12..32]
                     )
                 )
             }
@@ -89,7 +83,7 @@ impl PublicKey {
         let mut pk = [0; 32];
         // Only NearImplicitAccount can be reversed
         hex::decode_to_slice(account_id.as_str(), &mut pk).ok()?;
-        Some(Self::Ed25519(pk))
+        Some(Ed25519PublicKey(pk).into())
     }
 }
 
@@ -98,9 +92,12 @@ impl Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}:{}",
-            self.curve_type(),
-            bs58::encode(self.data()).into_string()
+            "{}",
+            match self {
+                Self::Ed25519(pk) => pk.to_string(),
+                Self::Secp256k1(pk) => pk.to_string(),
+                Self::P256(pk) => pk.to_string(),
+            }
         )
     }
 }
@@ -116,34 +113,32 @@ impl FromStr for PublicKey {
     type Err = ParseCurveError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (curve, data) = if let Some((curve, data)) = s.split_once(':') {
-            (
-                curve.parse().map_err(|_| ParseCurveError::WrongCurveType)?,
-                data,
-            )
-        } else {
-            (CurveType::Ed25519, s)
-        };
+        let (curve, data) = s
+            .split_once(':')
+            // ed25519 by default
+            .unwrap_or((Ed25519::CURVE_TYPE, s));
 
         match curve {
-            CurveType::Ed25519 => Ed25519::parse_base58(data).map(Self::Ed25519),
-            CurveType::Secp256k1 => Secp256k1::parse_base58(data).map(Self::Secp256k1),
-            CurveType::P256 => P256::parse_base58(data)
+            Ed25519::CURVE_TYPE => checked_base58_decode_array(data)
+                .map(Ed25519PublicKey)
+                .map(Into::into),
+            Secp256k1::CURVE_TYPE => checked_base58_decode_array(data)
+                .map(Secp256k1UncompressedPublicKey)
+                .map(Into::into),
+            P256::CURVE_TYPE => checked_base58_decode_array(data)
                 .map(P256UncompressedPublicKey)
-                .map(Self::P256),
+                .map(Into::into),
+            _ => Err(ParseCurveError::WrongCurveType),
         }
     }
 }
 
 #[cfg(feature = "abi")]
 const _: () = {
-    use near_sdk::{
-        schemars::{
-            JsonSchema,
-            r#gen::SchemaGenerator,
-            schema::{InstanceType, Metadata, Schema, SchemaObject},
-        },
-        serde_json,
+    use schemars::{
+        JsonSchema,
+        r#gen::SchemaGenerator,
+        schema::{InstanceType, Metadata, Schema, SchemaObject},
     };
 
     impl JsonSchema for PublicKey {
@@ -207,10 +202,11 @@ const _: () = {
     use near_kit::types::PublicKey as NearPublicKey;
 
     impl From<NearPublicKey> for PublicKey {
+        #[inline]
         fn from(pk: NearPublicKey) -> Self {
             match pk {
-                NearPublicKey::Ed25519(pk) => Self::Ed25519(pk),
-                NearPublicKey::Secp256k1(pk) => Self::Secp256k1(pk),
+                NearPublicKey::Ed25519(pk) => Self::Ed25519(pk.into()),
+                NearPublicKey::Secp256k1(pk) => Self::Secp256k1(pk.into()),
             }
         }
     }

@@ -1,24 +1,26 @@
-use defuse_crypto::{
-    Ed25519PublicKey, Ed25519Signature, P256Signature, Payload, SignedPayload, compress_public_key,
-};
 use defuse_digest::{Digest, sha2::Sha256};
-use defuse_webauthn::{Algorithm, Ed25519, P256, PayloadSignature, UserVerification};
-use near_sdk::{CryptoHash, near, serde::de::DeserializeOwned, serde_json};
+pub use defuse_webauthn::WebauthnAssertion;
+use defuse_webauthn::{IgnoreUserVerification, ed25519::Ed25519, p256::P256};
+use near_sdk::CryptoHash;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{PublicKey, Signature};
+use crate::{
+    PublicKey, Signature,
+    payload::{Payload, SignedPayload},
+};
 
 use super::{DefusePayload, ExtractDefusePayload};
 
-#[near(serializers = [json])]
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "abi", derive(::schemars::JsonSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedWebAuthnPayload {
     pub payload: String,
-    pub public_key: PublicKey,
-    // schemars@0.8 does not respect it's `schemars(bound = "...")`
-    // attribute: https://github.com/GREsau/schemars/blob/104b0fd65055d4b46f8dcbe38cdd2ef2c4098fe2/schemars_derive/src/lib.rs#L193-L206
-    #[cfg_attr(feature = "abi", schemars(skip))]
+
     #[serde(flatten)]
-    pub signature: PayloadSignature<Ed25519OrP256>,
+    pub assertion: WebauthnAssertion,
+
+    pub public_key: PublicKey,
+    pub signature: Signature,
 }
 
 impl Payload for SignedWebAuthnPayload {
@@ -28,43 +30,39 @@ impl Payload for SignedWebAuthnPayload {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Ed25519OrP256;
-
-impl Algorithm for Ed25519OrP256 {
-    type PublicKey = PublicKey;
-
-    type Signature = Signature;
-
-    #[inline]
-    fn verify(msg: &[u8], public_key: &Self::PublicKey, signature: &Self::Signature) -> bool {
-        match (public_key, signature) {
-            (PublicKey::Ed25519(public_key), Signature::Ed25519(signature)) => Ed25519::verify(
-                msg,
-                &Ed25519PublicKey(*public_key),
-                &Ed25519Signature(*signature),
-            ),
-
-            (PublicKey::P256(public_key), Signature::P256(signature)) => P256::verify(
-                msg,
-                &compress_public_key(*public_key),
-                &P256Signature(*signature),
-            ),
-
-            _ => false,
-        }
-    }
-}
-
 impl SignedPayload for SignedWebAuthnPayload {
     type PublicKey = PublicKey;
 
     #[inline]
     fn verify(&self) -> Option<Self::PublicKey> {
-        self.signature
-            .verify(self.hash(), &self.public_key, UserVerification::Ignore)
-            .then_some(&self.public_key)
-            .copied()
+        type Webauthn<A> = defuse_webauthn::Webauthn<
+            A,
+            // `UV` (User Verified) flag is only set by FIDO2-capable devices with
+            // PIN / biometric setup.
+            //
+            // FIDO U2F (CTAP 1) authenticators (such as old Ledger and Yubikey
+            // devices) only set `UP` (User Present) flag and doesn't support `UV`
+            // (User Verified).
+            IgnoreUserVerification,
+        >;
+
+        match (self.public_key, self.signature) {
+            (PublicKey::Ed25519(pk), Signature::Ed25519(sig)) => Webauthn::<Ed25519>::verify(
+                &pk.try_into().ok()?,
+                self.hash(),
+                &self.assertion,
+                &sig.into(),
+            ),
+            (PublicKey::P256(pk), Signature::P256(sig)) => Webauthn::<P256>::verify(
+                &pk.try_into().ok()?,
+                self.hash(),
+                &self.assertion,
+                &sig.try_into().ok()?,
+            ),
+            _ => false,
+        }
+        .then_some(&self.public_key)
+        .copied()
     }
 }
 
@@ -82,11 +80,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::intents::DefuseIntents;
+
     use super::*;
     use near_sdk::{AccountIdRef, serde_json};
 
     #[test]
     fn p256() {
+        const SIGNER_ID: &AccountIdRef =
+            AccountIdRef::new_or_panic("0x3602b546589a8fcafdce7fad64a46f91db0e4d50");
+
         let p: SignedWebAuthnPayload = serde_json::from_str(r#"{
   "standard": "webauthn",
   "payload": "{\"signer_id\":\"0x3602b546589a8fcafdce7fad64a46f91db0e4d50\",\"verifying_contract\":\"defuse.test.near\",\"deadline\":\"2025-03-30T00:00:00Z\",\"nonce\":\"A3nsY1GMVjzyXL3mUzOOP3KT+5a0Ruy+QDNWPhchnxM=\",\"intents\":[{\"intent\":\"transfer\",\"receiver_id\":\"user1.test.near\",\"tokens\":{\"nep141:ft1.poa-factory.test.near\":\"1000\"}}]}",
@@ -103,14 +106,19 @@ mod tests {
                 .parse()
                 .unwrap(),
         );
-        assert_eq!(
-            public_key.to_implicit_account_id(),
-            AccountIdRef::new_or_panic("0x3602b546589a8fcafdce7fad64a46f91db0e4d50")
-        );
+        assert_eq!(public_key.to_implicit_account_id(), SIGNER_ID);
+
+        let dp: DefusePayload<DefuseIntents> = p.extract_defuse_payload().unwrap();
+        dbg!(&dp);
+        assert_eq!(dp.signer_id, SIGNER_ID);
     }
 
     #[test]
     fn ed25519() {
+        const SIGNER_ID: &AccountIdRef = AccountIdRef::new_or_panic(
+            "19a8cd22b37802c3cbc0031f55c70f3858ac48dbfb7697c435da637fea0e0e47",
+        );
+
         let p: SignedWebAuthnPayload = serde_json::from_str(r#" {
   "standard": "webauthn",
   "payload": "{\"signer_id\":\"19a8cd22b37802c3cbc0031f55c70f3858ac48dbfb7697c435da637fea0e0e47\",\"verifying_contract\":\"intents.near\",\"deadline\":{\"timestamp\":1732035219},\"nonce\":\"XVoKfmScb3G+XqH9ke/fSlJ/3xO59sNhCxhpG821BH8=\",\"intents\":[{\"intent\":\"token_diff\",\"diff\":{\"nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near\":\"-1000\",\"nep141:eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near\":\"998\"}}]}",
@@ -127,11 +135,6 @@ mod tests {
                 .parse()
                 .unwrap(),
         );
-        assert_eq!(
-            public_key.to_implicit_account_id(),
-            AccountIdRef::new_or_panic(
-                "19a8cd22b37802c3cbc0031f55c70f3858ac48dbfb7697c435da637fea0e0e47"
-            )
-        );
+        assert_eq!(public_key.to_implicit_account_id(), SIGNER_ID);
     }
 }

@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "defuse-escrow-swap"
 edition.workspace = true
@@ -8,8 +10,58 @@ repository.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[lints]
-workspace = true
+[dependencies]
+defuse-borsh-utils.workspace = true
+defuse-decimal = { workspace = true, features = ["borsh", "serde"] }
+defuse-fees = { workspace = true, features = ["borsh", "serde"] }
+defuse-nep245.workspace = true
+defuse-num-utils.workspace = true
+defuse-time = { workspace = true, features = ["borsh", "serde"] }
+defuse-token-id = { workspace = true, features = ["borsh", "serde"] }
+
+near-contract-standards.workspace = true
+near-sdk.workspace = true
+
+borsh = { workspace = true, features = ["derive"] }
+derive_more = { workspace = true, features = ["from"] }
+hex.workspace = true
+impl-tools.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["hex"] }
+thiserror.workspace = true
+
+defuse-auth-call = { workspace = true, optional = true }
+defuse-near-utils = { workspace = true, optional = true }
+schemars = { workspace = true, features = ["derive"], optional = true }
+
+[features]
+default = ["auth_call", "nep141", "nep245"]
+
+auth_call = ["dep:defuse-auth-call"]
+nep141 = []
+nep245 = []
+
+abi = [
+  "borsh/unstable__schema",
+  "defuse-decimal/abi",
+  "defuse-fees/abi",
+  "defuse-nep245/abi",
+  "defuse-time/abi",
+  "defuse-token-id/abi",
+  "dep:schemars",
+  "near-sdk/abi",
+  "serde_with/schemars_0_8",
+]
+contract = ["dep:defuse-near-utils"]
+
+[dev-dependencies]
+defuse-escrow-swap = { path = ".", features = ["abi"] }
+defuse-sandbox.workspace = true
+
+futures.workspace = true
+itertools.workspace = true
+rstest.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 
 [package.metadata.near.reproducible_build]
 image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
@@ -24,49 +76,3 @@ container_build_command = [
   "--features=contract",
   "--abi-features=abi,contract",
 ]
-
-[dependencies]
-defuse-borsh-utils.workspace = true
-defuse-decimal = { workspace = true, features = ["borsh", "serde"] }
-defuse-fees = { workspace = true, features = ["borsh", "serde"] }
-defuse-nep245.workspace = true
-defuse-num-utils.workspace = true
-defuse-time = { workspace = true, features = ["borsh", "serde"] }
-defuse-token-id = { workspace = true, features = ["borsh", "serde"] }
-
-near-contract-standards.workspace = true
-near-sdk.workspace = true
-
-derive_more = { workspace = true, features = ["from"] }
-hex.workspace = true
-impl-tools.workspace = true
-serde_with = { workspace = true, features = ["hex"] }
-thiserror.workspace = true
-
-defuse-auth-call = { workspace = true, optional = true }
-defuse-near-utils = { workspace = true, optional = true }
-
-[dev-dependencies]
-defuse-sandbox.workspace = true
-
-futures.workspace = true
-itertools.workspace = true
-rstest.workspace = true
-tokio = { workspace = true, features = ["macros"] }
-
-[features]
-default = ["auth_call", "nep141", "nep245"]
-
-auth_call = ["dep:defuse-auth-call"]
-nep141 = ["defuse-token-id/nep141"]
-nep245 = ["defuse-token-id/nep245"]
-
-abi = [
-  "defuse-decimal/abi",
-  "defuse-fees/abi",
-  "defuse-time/abi",
-  "defuse-token-id/abi",
-  "near-sdk/abi",
-  "serde_with/schemars_0_8",
-]
-contract = ["dep:defuse-near-utils"]

@@ -1,6 +1,7 @@
 lints.workspace = true
 
 [package]
+# TODO: rename to verifier
 name = "defuse-core"
 edition.workspace = true
 version.workspace = true
@@ -9,22 +10,24 @@ repository.workspace = true
 
 [dependencies]
 defuse-bitmap = { workspace = true, features = ["borsh"] }
-defuse-crypto = { workspace = true, features = ["borsh", "ed25519", "secp256k1", "p256", "near-contract", "serde"] }
+defuse-crypto = { workspace = true, features = ["borsh", "ed25519", "secp256k1", "p256", "serde"] }
 defuse-digest = { workspace = true, features = ["sha2"] }
-defuse-erc191 = { workspace = true, features = ["near-contract", "serde"] }
+defuse-erc191.workspace = true
 defuse-fees = { workspace = true, features = ["borsh", "serde"] }
 defuse-map-utils = { workspace = true, features = ["near"] }
 defuse-near-utils.workspace = true
 defuse-nep245.workspace = true
-defuse-nep413 = { workspace = true, features = ["near-contract", "serde"] }
+defuse-nep413 = { workspace = true, features = ["serde"] }
 defuse-num-utils.workspace = true
-defuse-sep53 = { workspace = true, features = ["near-contract", "serde"] }
+defuse-sep53.workspace = true
+# defuse-signature-schema.workspace = true
 defuse-time = { workspace = true, features = ["borsh", "serde"] }
-defuse-tip191 = { workspace = true, features = ["near-contract", "serde"] }
-defuse-token-id = { workspace = true, features = ["nep141", "nep171", "nep245", "borsh", "serde"] }
-defuse-ton-connect = { workspace = true, features = ["near-contract", "serde"] }
-defuse-webauthn = { workspace = true, features = ["borsh", "near-contract", "ed25519", "p256"] }
+defuse-tip191.workspace = true
+defuse-token-id = { workspace = true, features = ["borsh", "serde"] }
+defuse-ton-connect = { workspace = true, features = ["serde"] }
+defuse-webauthn = { workspace = true, features = ["ed25519", "p256"] }
 
+borsh = { workspace = true, features = ["derive"] }
 defuse-borsh-utils.workspace = true
 derive_more = { workspace = true, features = ["from"] }
 hex.workspace = true
@@ -32,27 +35,27 @@ hex-literal.workspace = true
 impl-tools.workspace = true
 near-contract-standards.workspace = true
 near-sdk = { workspace = true, features = ["deterministic-account-ids"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 serde_with = { workspace = true, features = ["base58", "base64"] }
 thiserror.workspace = true
 
-arbitrary = { workspace = true, optional = true }
+arbitrary = { workspace = true, features = ["derive"], optional = true }
 near-kit = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+schemars = { workspace = true, features = ["derive"], optional = true }
 
 [features]
 abi = [
+  "borsh/unstable__schema",
   "defuse-bitmap/abi",
   "defuse-crypto/abi",
-  "defuse-erc191/abi",
   "defuse-fees/abi",
   "defuse-nep413/abi",
-  "defuse-sep53/abi",
   "defuse-time/abi",
-  "defuse-tip191/abi",
   "defuse-token-id/abi",
   "defuse-ton-connect/abi",
   "defuse-webauthn/abi",
-  "dep:serde_json",
+  "dep:schemars",
   "near-sdk/abi",
   "serde_with/schemars_0_8",
 ]
@@ -63,8 +66,8 @@ arbitrary = [
   "defuse-ton-connect/arbitrary",
   "dep:arbitrary",
 ]
-imt = ["defuse-token-id/imt"]
-near-kit = ["dep:near-kit"]
+imt = []
+near-kit = ["defuse-nep413/near-kit", "dep:near-kit"]
 
 [dev-dependencies]
 defuse-core = { workspace = true, features = ["arbitrary"] }

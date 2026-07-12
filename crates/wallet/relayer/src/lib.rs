@@ -2,14 +2,11 @@ mod request;
 
 pub use self::request::*;
 
-use std::{borrow::Cow, time::Duration};
+use std::{convert::Infallible, time::Duration};
 
-use defuse_wallet_client::{WExecuteSignedArgs, Wallet};
-pub use defuse_wallet_core as wallet;
-
-use defuse_wallet_core::{RequestMessage, Timestamp};
+pub use defuse_wallet_sdk as wallet;
+use defuse_wallet_sdk::{RequestMessage, Timestamp, client::WalletContract};
 pub use near_kit;
-
 use near_kit::{ExecutedOptimistic, FinalExecutionOutcome, Gas, InvalidTxError, Near, NearToken};
 use thiserror::Error as ThisError;
 #[cfg(feature = "tracing")]
@@ -52,12 +49,11 @@ impl WalletRelayer {
 
     /// Relay signed request with optional attached deposit.
     /// If no additional deposit is needed then pass `NearToken::ZERO`.
-    // TODO: return request hash?
     #[cfg_attr(
         feature = "tracing",
         instrument(skip_all, fields(
-            signer_id = %request.msg.signer_id,
-            request.hash = %near_kit::CryptoHash::from_bytes(request.msg.hash()),
+            msg.signer_id = %request.msg.signer_id,
+            msg.hash = %near_kit::CryptoHash::from_bytes(request.msg.hash()),
             deposit = Some(deposit).filter(|d| !d.is_zero()).map(field::display),
         ))
     )]
@@ -97,18 +93,15 @@ impl WalletRelayer {
         };
 
         tx = tx.add_action(
-            Wallet::w_execute_signed(WExecuteSignedArgs {
-                msg: Cow::Borrowed(&request.msg),
-                proof: Cow::Borrowed(&request.proof),
-            })
-            .deposit(
-                needs_deposit
-                    // assist with deposit, but capped so the relayer will not get drained
-                    .min(Self::MAX_ASSIST_DEPOSIT)
-                    // attach optional given deposit, too
-                    .saturating_add(deposit),
-            )
-            .gas(self.tx_gas(&request.msg, request.gas, max_gas)?),
+            WalletContract::w_execute_signed((&request.msg, &request.proof).into())
+                .deposit(
+                    needs_deposit
+                        // assist with deposit, but capped so the relayer will not get drained
+                        .min(Self::MAX_ASSIST_DEPOSIT)
+                        // attach optional given deposit, too
+                        .saturating_add(deposit),
+                )
+                .gas(self.tx_gas(&request.msg, request.gas, max_gas)?),
         );
 
         tokio::time::timeout(
@@ -190,5 +183,12 @@ impl From<InvalidTxError> for Error {
     #[inline]
     fn from(err: InvalidTxError) -> Self {
         Self::Transaction(near_kit::Error::InvalidTx(err.into()))
+    }
+}
+
+impl From<Infallible> for Error {
+    #[inline]
+    fn from(value: Infallible) -> Self {
+        match value {}
     }
 }

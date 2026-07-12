@@ -1,233 +1,82 @@
-use defuse_crypto::{Curve, Ed25519};
-use impl_tools::autoimpl;
+//! [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) Signed Data Standard
 
-/// See [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md)
-#[cfg_attr(
-    feature = "serde",
-    derive(::serde::Serialize, ::serde::Deserialize),
-    cfg_attr(feature = "abi", derive(::schemars::JsonSchema)),
-    serde(rename_all = "snake_case")
-)]
-#[derive(Debug, Clone)]
-pub struct Sep53Payload {
-    pub payload: String,
-}
+use defuse_crypto::{Curve, ed25519::Ed25519};
+use defuse_digest::{Digest, sha2::Sha256};
 
-impl Sep53Payload {
+/// [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) Signed Data Standard
+pub struct Sep53;
+
+impl Sep53 {
+    /// Verify signature over a given message for given public key according to
+    /// [SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md).
+    #[must_use = "check if verification passed"]
     #[inline]
-    pub const fn new(payload: String) -> Self {
-        Self { payload }
+    pub fn verify(
+        public_key: &<Ed25519 as Curve>::PublicKey,
+        msg: impl AsRef<[u8]>,
+        signature: &<Ed25519 as Curve>::Signature,
+    ) -> bool {
+        Ed25519::verify(public_key, &Self::prehash(msg.as_ref()), signature)
     }
-}
 
-impl defuse_crypto::Payload for Sep53Payload {
+    /// Derive prehash for signing according to following schema:
+    ///
+    /// ```text
+    /// <"Stellar Signed Message:\n"> <data to sign>
+    /// ```
     #[inline]
-    fn hash(&self) -> defuse_crypto::CryptoHash {
-        use defuse_digest::{Digest, sha2::Sha256};
-
+    pub fn prehash(msg: impl AsRef<[u8]>) -> [u8; 32] {
         Sha256::new_with_prefix(b"Stellar Signed Message:\n")
-            .chain_update(self.payload.as_bytes())
+            // <data to sign>
+            .chain_update(msg)
             .finalize()
             .into()
     }
 }
 
-#[cfg_attr(
-    feature = "serde",
-    ::cfg_eval::cfg_eval,
-    ::serde_with::serde_as,
-    derive(::serde::Serialize, ::serde::Deserialize),
-    cfg_attr(feature = "abi", derive(::schemars::JsonSchema))
-)]
-#[autoimpl(Deref using self.payload)]
-#[derive(Debug, Clone)]
-pub struct SignedSep53Payload {
-    #[cfg_attr(feature = "serde", serde(flatten))]
-    pub payload: Sep53Payload,
-
-    #[cfg_attr(
-        feature = "serde",
-        serde_as(as = "defuse_crypto::serde::AsCurve<Ed25519>")
-    )]
-    pub public_key: <Ed25519 as Curve>::PublicKey,
-    #[cfg_attr(
-        feature = "serde",
-        serde_as(as = "defuse_crypto::serde::AsCurve<Ed25519>")
-    )]
-    pub signature: <Ed25519 as Curve>::Signature,
-}
-
-impl defuse_crypto::Payload for SignedSep53Payload {
-    #[inline]
-    fn hash(&self) -> defuse_crypto::CryptoHash {
-        self.payload.hash()
-    }
-}
-
-#[cfg(any(test, feature = "near-contract"))]
-impl defuse_crypto::SignedPayload for SignedSep53Payload {
-    type PublicKey = <Ed25519 as Curve>::PublicKey;
-
-    #[inline]
-    fn verify(&self) -> Option<Self::PublicKey> {
-        use defuse_crypto::{Payload, VerifiableCurve};
-        Ed25519::verify(&self.signature, &self.hash(), &self.public_key)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{Sep53Payload, SignedSep53Payload};
-    use base64::{Engine, engine::general_purpose::STANDARD};
-    use defuse_crypto::{Payload, SignedPayload};
-    use defuse_digest::Digest;
-    use defuse_digest::sha2::Sha256;
-    use defuse_test_utils::random::{CryptoRng, gen_random_string, random_bytes, rng};
-    use defuse_test_utils::tamper::{tamper_bytes, tamper_string};
-    use ed25519_dalek::SigningKey;
-    use ed25519_dalek::{Signer, Verifier};
-    use near_sdk::base64;
+    use defuse_crypto::ed25519::ed25519_dalek::{SIGNATURE_LENGTH, Signature, VerifyingKey};
+    use hex_literal::hex;
     use rstest::rstest;
     use stellar_strkey::Strkey;
 
-    #[test]
-    fn reference_test_vectors() {
-        // 1) Decode the StrKey seed -> raw 32 bytes
-        let seed = "SAKICEVQLYWGSOJS4WW7HZJWAHZVEEBS527LHK5V4MLJALYKICQCJXMW";
-        let raw_key = match Strkey::from_string(seed).unwrap() {
-            Strkey::PrivateKeyEd25519(pk) => pk.0,
-            _ => panic!("expected an Ed25519 seed"),
+    use super::*;
+
+    // https://github.com/stellar/stellar-protocol/blob/1b1c22e02fc0cec6fff1175c2d7d08ad83a828e1/ecosystem/sep-0053.md#test-cases
+    #[rstest]
+    #[case::ascii(
+        "GBXFXNDLV4LSWA4VB7YIL5GBD7BVNR22SGBTDKMO2SBZZHDXSKZYCP7L",
+        "Hello, World!",
+        hex!("7cee5d6d885752104c85eea421dfdcb95abf01f1271d11c4bec3fcbd7874dccd6e2e98b97b8eb23b643cac4073bb77de5d07b0710139180ae9f3cbba78f2ba04"),
+    )]
+    #[case::japanese(
+        "GBXFXNDLV4LSWA4VB7YIL5GBD7BVNR22SGBTDKMO2SBZZHDXSKZYCP7L",
+        "こんにちは、世界！",
+        hex!("083536eb95ecf32dce59b07fe7a1fd8cf814b2ce46f40d2a16e4ea1f6cecd980e04e6fbef9d21f98011c785a81edb85f3776a6e7d942b435eb0adc07da4d4604"),
+    )]
+    #[case::binary(
+        "GBXFXNDLV4LSWA4VB7YIL5GBD7BVNR22SGBTDKMO2SBZZHDXSKZYCP7L",
+        hex!("db36433f5b1ad415417cb3fb4de78c937b146dac4091484184388d76b92c685a"),
+        hex!("540d7eee179f370bf634a49c1fa9fe4a58e3d7990b0207be336c04edfcc539ff8bd0c31bb2c0359b07c9651cb2ae104e4504657b5d17d43c69c7e50e23811b0d"),
+    )]
+    fn verify_ok(
+        #[case] address: &str,
+        #[case] msg: impl AsRef<[u8]>,
+        #[case] signature: [u8; SIGNATURE_LENGTH],
+    ) {
+        let Strkey::PublicKeyEd25519(stellar_strkey::ed25519::PublicKey(public_key)) =
+            address.parse().unwrap()
+        else {
+            panic!("invalid ed25519 public key address");
         };
 
-        // 2) Build SigningKey + VerifyingKey
-        let signing_key = SigningKey::from_bytes(&raw_key);
-        let verifying_key = signing_key.verifying_key();
+        let public_key = VerifyingKey::from_bytes(&public_key).unwrap();
+        let signature = Signature::from_bytes(&signature);
 
-        let vectors = [
-            (
-                "Hello, World!",
-                "fO5dbYhXUhBMhe6kId/cuVq/AfEnHRHEvsP8vXh03M1uLpi5e46yO2Q8rEBzu3feXQewcQE5GArp88u6ePK6BA==",
-            ),
-            (
-                "こんにちは、世界！",
-                "CDU265Xs8y3OWbB/56H9jPgUss5G9A0qFuTqH2zs2YDgTm+++dIfmAEceFqB7bhfN3am59lCtDXrCtwH2k1GBA==",
-            ),
-            // One test vector is dropped because it's binary data, and that's not supported
-        ];
-
-        // Verify with dalek
-        for (msg, expected_b64) in vectors {
-            let mut payload = "Stellar Signed Message:\n".to_string();
-            payload += msg;
-
-            let hash = Sha256::digest(payload.as_bytes());
-            let sig = signing_key.sign(hash.as_ref());
-            let actual_b64 = STANDARD.encode(sig.to_bytes());
-
-            assert_eq!(actual_b64, *expected_b64);
-            assert!(verifying_key.verify(hash.as_ref(), &sig).is_ok());
-        }
-
-        // Verify with our abstraction
-        for (msg, expected_sig_b64) in vectors {
-            let payload = Sep53Payload::new(msg.to_string());
-
-            let hash = payload.hash();
-
-            let sig = signing_key.sign(hash.as_ref());
-            let actual_sig_b64 = STANDARD.encode(sig.to_bytes());
-            assert_eq!(actual_sig_b64, *expected_sig_b64);
-            assert!(signing_key.verify(hash.as_ref(), &sig).is_ok());
-
-            let signed_payload = SignedSep53Payload {
-                payload,
-                public_key: verifying_key.as_bytes().to_owned(),
-                signature: sig.to_bytes(),
-            };
-
-            assert_eq!(
-                signed_payload.verify(),
-                Some(verifying_key.as_bytes().to_owned())
-            );
-        }
-    }
-
-    /// Decode our test seed into a NEAR ED25519 secret + public key
-    fn make_ed25519_key(rng: &mut impl CryptoRng) -> SigningKey {
-        // We have to use dalek because near interface doesn't support making keys from bytes
-        // so we start from dalek, generate a random key, then use it in a new near_crypto key
-        let key_len = ed25519_dalek::SECRET_KEY_LENGTH;
-        let bytes = random_bytes(key_len..=key_len, rng);
-        SigningKey::from_bytes(&bytes.try_into().unwrap())
-    }
-
-    #[rstest]
-    fn tampered_message_fails(mut rng: impl CryptoRng) {
-        let sk = make_ed25519_key(&mut rng);
-        let pk = sk.verifying_key();
-
-        let msg = gen_random_string(&mut rng, 100..1000);
-
-        // sign the “good” message
-        let payload = Sep53Payload::new(msg.clone());
-        let hash = payload.hash();
-        let sig = sk.sign(hash.as_ref());
-
-        {
-            let signed_good = SignedSep53Payload {
-                payload,
-                public_key: pk.to_bytes(),
-                signature: sig.to_bytes(),
-            };
-            assert!(signed_good.verify().is_some());
-        }
-
-        // tamper with the message, and expect failure
-        {
-            let tempered_message = tamper_string(&mut rng, &msg);
-
-            // verify with a tampered message
-            let bad_payload = Sep53Payload::new(tempered_message);
-            let signed_bad = SignedSep53Payload {
-                payload: bad_payload,
-                public_key: pk.to_bytes(),
-                signature: sig.to_bytes(),
-            };
-            assert_eq!(signed_bad.verify(), None);
-        }
-    }
-
-    #[rstest]
-    fn tampered_signature_fails(mut rng: impl CryptoRng) {
-        let sk = make_ed25519_key(&mut rng);
-        let pk = sk.verifying_key();
-
-        let msg = gen_random_string(&mut rng, 100..1000);
-
-        // sign the canonical payload
-        let payload = Sep53Payload::new(msg);
-        let hash = payload.hash();
-        let sig = sk.sign(hash.as_ref());
-
-        {
-            let signed_good = SignedSep53Payload {
-                payload: payload.clone(),
-                public_key: pk.to_bytes(),
-                signature: sig.into(),
-            };
-            assert!(signed_good.verify().is_some());
-        }
-
-        // tamper with the signature, and expect failure
-        {
-            let bad_bytes = tamper_bytes(&mut rng, sig.to_bytes().as_ref(), false);
-
-            let signed_bad = SignedSep53Payload {
-                payload,
-                public_key: pk.to_bytes(),
-                signature: bad_bytes.try_into().unwrap(),
-            };
-            assert!(signed_bad.verify().is_none());
-        }
+        assert!(
+            Sep53::verify(&public_key, msg, &signature),
+            "invalid signature",
+        );
     }
 }

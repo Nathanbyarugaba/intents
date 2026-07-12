@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "defuse-wallet-sdk"
 edition.workspace = true
@@ -5,21 +7,26 @@ version = "0.1.0"
 rust-version.workspace = true
 repository.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
-defuse-wallet-core = { workspace = true, features = ["borsh", "digest"] }
+defuse-wallet = { workspace = true, features = ["borsh", "digest"] }
 
+async-trait.workspace = true
 borsh.workspace = true
+impl-tools.workspace = true
 near-global-contracts = { workspace = true, features = ["borsh"] }
 rand.workspace = true
 
-defuse-crypto = { workspace = true, features = ["parse", "borsh"], optional = true }
-ed25519-dalek = { workspace = true, optional = true }
+bs58 = { workspace = true, optional = true }
+derive_more = { workspace = true, features = ["from"], optional = true }
+near-kit = { workspace = true, default-features = false, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+tracing = { workspace = true, optional = true }
 
 [features]
-default = ["ed25519"]
+json = ["defuse-wallet/json"]
+near-kit = ["dep:derive_more", "dep:near-kit", "derive_more/from", "serde"]
+serde = ["defuse-wallet/serde", "dep:serde", "near-global-contracts/serde"]
+tracing = ["dep:bs58", "dep:tracing"]
 
-ed25519 = ["defuse-crypto/ed25519", "dep:defuse-crypto", "dep:ed25519-dalek"]
-json = ["defuse-wallet-core/json"]
+[dev-dependencies]
+defuse-wallet-sdk = { path = ".", features = ["json", "near-kit", "serde"] }

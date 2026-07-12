@@ -21,7 +21,7 @@ use self::actions::{DeterministicStateInit, FunctionCall, NearAction, Transfer};
     cfg_attr(feature = "borsh-schema", derive(::borsh::BorshSchema))
 )]
 /// A single outgoing promise
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NearPromise {
     /// Receiver of the receipt to be created.
     ///
@@ -186,8 +186,7 @@ impl NearPromise {
             .fold(Gas::from_gas(0), Gas::saturating_add)
     }
 
-    #[cfg(feature = "near-contract")]
-    /// Build [`Promise`] for execution
+    /// Build [`near_sdk::Promise`] for execution
     ///
     /// # Examples
     ///
@@ -200,6 +199,7 @@ impl NearPromise {
     /// // build and detach
     /// p.build().detach();
     /// ```
+    #[cfg(feature = "near-contract")]
     pub fn build(self) -> ::near_sdk::Promise {
         let mut p = ::near_sdk::Promise::new(self.receiver_id);
 

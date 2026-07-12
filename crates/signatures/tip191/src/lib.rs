@@ -1,138 +1,80 @@
-use defuse_crypto::{Curve, Secp256k1};
-use impl_tools::autoimpl;
+//! [TIP-191](https://github.com/tronprotocol/tips/blob/master/tip-191.md)
+//! Signed Data Standard
 
-/// See [TIP-191](https://github.com/tronprotocol/tips/blob/master/tip-191.md)
-#[cfg_attr(
-    feature = "serde",
-    derive(::serde::Serialize, ::serde::Deserialize),
-    cfg_attr(feature = "abi", derive(::schemars::JsonSchema))
-)]
-#[derive(Debug, Clone)]
-pub struct Tip191Payload(pub String);
+use defuse_crypto::{Curve, RecoverableCurve, secp256k1::Secp256k1};
+use defuse_digest::{Digest, sha3::Keccak256};
 
-impl defuse_crypto::Payload for Tip191Payload {
+/// [TIP-191](https://github.com/tronprotocol/tips/blob/master/tip-191.md)
+/// Signed Data Standard
+pub struct Tip191;
+
+impl Tip191 {
+    /// Try to recover public key which signed given message according to
+    /// [TIP-191](https://github.com/tronprotocol/tips/blob/master/tip-191.md)
+    /// and produced given signature and recovery id.
+    #[must_use = "check recovered public key"]
     #[inline]
-    fn hash(&self) -> defuse_crypto::CryptoHash {
-        use defuse_digest::{Digest, sha3::Keccak256};
+    pub fn recover(
+        msg: impl AsRef<[u8]>,
+        signature: &<Secp256k1 as Curve>::Signature,
+        recovery_id: <Secp256k1 as RecoverableCurve>::RecoveryId,
+    ) -> Option<<Secp256k1 as Curve>::PublicKey> {
+        Secp256k1::recover(&Self::prehash(msg.as_ref()), signature, recovery_id)
+    }
 
-        // Prefix not specified in the standard. But from: https://tronweb.network/docu/docs/Sign%20and%20Verify%20Message/
+    /// Derive prehash for signing
+    #[inline]
+    pub fn prehash(msg: impl AsRef<[u8]>) -> [u8; 32] {
+        let msg = msg.as_ref();
+
+        // Prefix itself is not specified in the standard. But from:
+        // https://tronweb.network/docu/docs/Sign%20and%20Verify%20Message/
         Keccak256::new_with_prefix(b"\x19TRON Signed Message:\n")
-            .chain_update(self.0.len().to_string())
-            .chain_update(self.0.as_bytes())
+            // `len(message)` is the non-zero-padded ascii-decimal encoding of the number of bytes in message.
+            .chain_update(msg.len().to_string())
+            // <data to sign>
+            .chain_update(msg)
             .finalize()
             .into()
     }
 }
 
-#[cfg_attr(
-    feature = "serde",
-    ::cfg_eval::cfg_eval,
-    ::serde_with::serde_as,
-    derive(::serde::Serialize, ::serde::Deserialize),
-    cfg_attr(feature = "abi", derive(::schemars::JsonSchema))
-)]
-#[autoimpl(Deref using self.payload)]
-#[derive(Debug, Clone)]
-pub struct SignedTip191Payload {
-    pub payload: Tip191Payload,
-
-    /// There is no public key member because the public key can be recovered
-    /// via `ecrecover()` knowing the data and the signature
-    #[cfg_attr(
-        feature = "serde",
-        serde_as(as = "defuse_crypto::serde::AsCurve<Secp256k1>")
-    )]
-    pub signature: <Secp256k1 as Curve>::Signature,
-}
-
-impl defuse_crypto::Payload for SignedTip191Payload {
-    #[inline]
-    fn hash(&self) -> defuse_crypto::CryptoHash {
-        self.payload.hash()
-    }
-}
-
-#[cfg(any(test, feature = "near-contract"))]
-impl defuse_crypto::SignedPayload for SignedTip191Payload {
-    type PublicKey = <Secp256k1 as Curve>::PublicKey;
-
-    #[inline]
-    fn verify(&self) -> Option<Self::PublicKey> {
-        use defuse_crypto::{Payload, VerifiableCurve};
-        Secp256k1::verify(&self.signature, &self.payload.hash(), &())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use defuse_crypto::SignedPayload;
+    use defuse_crypto::secp256k1::k256::{
+        EncodedPoint,
+        ecdsa::{RecoveryId, Signature, VerifyingKey},
+    };
     use hex_literal::hex;
+    use rstest::rstest;
 
-    const fn fix_v_in_signature(mut sig: [u8; 65]) -> [u8; 65] {
-        if *sig.last().unwrap() >= 27 {
-            // Ethereum only uses uncompressed keys, with corresponding value v=27/28
-            // https://bitcoin.stackexchange.com/a/38909/58790
-            *sig.last_mut().unwrap() -= 27;
-        }
-        sig
-    }
+    use super::*;
 
-    // NOTE: Public key can be derived using `ethers_signers` crate:
-    // let wallet = LocalWallet::from_str(
-    //     "a4b319a82adfc43584e4537fec97a80516e16673db382cd91eba97abbab8ca56",
-    // )?;
-    // let signing_key = wallet.signer();
-    // let verifying_key = signing_key.verifying_key();
-    // let public_key = verifying_key.to_encoded_point(false);
-    // // Notice that we skip the first byte, 0x04
-    // println!("Public key: 0x{}", hex::encode(public_key.as_bytes()[1..]));
+    #[rstest]
+    #[case(
+        hex!("85a66984273f338ce4ef7b85e5430b008307e8591bb7c1b980852cf6423770b801f41e9438155eb53a5e20f748640093bb42ae3aeca035f7b7fd7a1a21f22f68"),
+        "Hello, TRON!",
+        hex!("eea1651a60600ec4d9c45e8ae81da1a78377f789f0ac2019de66ad943459913015ef9256809ee0e6bb76e303a0b4802e475c1d26ade5d585292b80c9fe9cb10c01"),
+    )]
+    fn recover_ok(
+        #[case] public_key: [u8; 64],
+        #[case] msg: impl AsRef<[u8]>,
+        #[case] signature: [u8; 65],
+    ) {
+        let msg = msg.as_ref();
+        let [signature @ .., v] = signature;
 
-    const REFERENCE_MESSAGE: &str = "Hello, TRON!";
-    const INVALID_REFERENCE_MESSAGE: &str = "this is not TRON reference input message";
-    const REFERENCE_SIGNATURE: [u8; 65] = hex!(
-        "eea1651a60600ec4d9c45e8ae81da1a78377f789f0ac2019de66ad943459913015ef9256809ee0e6bb76e303a0b4802e475c1d26ade5d585292b80c9fe9cb10c1c"
-    );
-    const INVALID_REFERENCE_SIGNATURE: [u8; 65] = hex!(
-        "0000000011111111000000001110111110000000011111111e66ad943459913015ef9256809ee0e6bb76e303a0b4802e475c1d26ade5d585292b80c9fe9cb10c1c"
-    );
-    const REFERENCE_PUBKEY: [u8; 64] = hex!(
-        "85a66984273f338ce4ef7b85e5430b008307e8591bb7c1b980852cf6423770b801f41e9438155eb53a5e20f748640093bb42ae3aeca035f7b7fd7a1a21f22f68"
-    );
+        let public_key = VerifyingKey::from_encoded_point(&EncodedPoint::from_untagged_bytes(
+            &public_key.into(),
+        ))
+        .unwrap();
+        let signature = Signature::from_bytes(&signature.into()).unwrap();
+        let recovery_id = RecoveryId::from_byte(v).unwrap();
 
-    #[test]
-    fn test_reference_signature_verification_works() {
         assert_eq!(
-            SignedTip191Payload {
-                payload: Tip191Payload(REFERENCE_MESSAGE.to_string()),
-                signature: fix_v_in_signature(REFERENCE_SIGNATURE),
-            }
-            .verify(),
-            Some(REFERENCE_PUBKEY)
-        );
-    }
-
-    #[test]
-    fn test_invalid_reference_message_verification_fails() {
-        assert_ne!(
-            SignedTip191Payload {
-                payload: Tip191Payload(INVALID_REFERENCE_MESSAGE.to_string()),
-                signature: fix_v_in_signature(REFERENCE_SIGNATURE),
-            }
-            .verify(),
-            Some(REFERENCE_PUBKEY)
-        );
-    }
-
-    #[test]
-    fn test_invalid_reference_signature_verification_fails() {
-        assert_ne!(
-            SignedTip191Payload {
-                payload: Tip191Payload(REFERENCE_MESSAGE.to_string()),
-                signature: fix_v_in_signature(INVALID_REFERENCE_SIGNATURE),
-            }
-            .verify(),
-            Some(REFERENCE_PUBKEY)
+            Tip191::recover(msg, &signature, recovery_id),
+            Some(public_key),
+            "invalid recovered public key",
         );
     }
 }

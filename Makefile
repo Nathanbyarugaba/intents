@@ -33,11 +33,11 @@ clean: clean-out-dir
 
 .PHONY: test
 test:
-	cargo test --all
+	cargo test --all --all-features
 
 .PHONY: check
 check: check-contracts
-	cargo clippy --workspace --all-targets --no-deps
+	cargo clippy --workspace --all-targets --all-features
 
 .PHONY: check-contracts
 
@@ -68,7 +68,10 @@ CONTRACT_CRATES := \
     defuse-outlayer-app \
     defuse-poa-factory \
     defuse-poa-token \
-    defuse-wallet \
+    defuse-wallet-ed25519 \
+    defuse-wallet-no-sign \
+    defuse-wallet-webauthn-ed25519 \
+    defuse-wallet-webauthn-p256 \
     defuse-treasury-logger \
     multi-token-receiver-stub
 

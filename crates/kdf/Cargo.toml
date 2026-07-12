@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "defuse-kdf"
 edition.workspace = true
@@ -5,11 +7,8 @@ version.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
-defuse-kdf-crypto.workspace = true
+defuse-crypto.workspace = true
 impl-tools.workspace = true
 
 borsh = { workspace = true, optional = true }
@@ -21,14 +20,10 @@ hex = { workspace = true, optional = true }
 k256 = { workspace = true, features = ["std", "arithmetic", "ecdsa"], optional = true }
 
 [features]
-ed25519 = [
-  "defuse-kdf-crypto/ed25519",
-  "dep:curve25519-dalek",
-  "dep:ed25519-dalek",
-]
-secp256k1 = ["defuse-kdf-crypto/secp256k1", "dep:k256"]
+ed25519 = ["defuse-crypto/ed25519", "dep:curve25519-dalek", "dep:ed25519-dalek"]
+secp256k1 = ["defuse-crypto/secp256k1", "dep:k256"]
 
-borsh = ["dep:borsh"]
+borsh = ["defuse-crypto/borsh", "dep:borsh"]
 digest = ["dep:digest", "dep:digest-io"]
 hex = ["dep:hex"]
 testing = []

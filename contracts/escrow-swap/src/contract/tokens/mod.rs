@@ -5,8 +5,9 @@ mod nep245;
 
 use defuse_near_utils::{promise_result_checked_json, promise_result_checked_void};
 use defuse_time::Timestamp;
-use near_sdk::{AccountId, Gas, Promise, PromiseOrValue, json_types::U128, near, serde_json};
-use serde_with::DisplayFromStr;
+use near_sdk::{AccountId, Gas, Promise, PromiseOrValue, json_types::U128, serde_json};
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
 
 use crate::{
     Error, Params, Result, State,
@@ -115,12 +116,14 @@ impl Sendable for TokenId {
             Self::Nep141(token) => token.send(receiver_id, amount, memo, msg, min_gas, unused_gas),
             #[cfg(feature = "nep245")]
             Self::Nep245(token) => token.send(receiver_id, amount, memo, msg, min_gas, unused_gas),
+            _ => panic!("unsupported token type"),
         }
     }
 }
 
-#[near(serializers = [json])]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[serde_as]
+#[cfg_attr(feature = "abi", derive(::schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Sent {
     pub token_type: TokenIdType,
@@ -140,6 +143,7 @@ impl Sent {
             TokenIdType::Nep141 => serde_json::to_vec(&U128(refund)),
             #[cfg(feature = "nep245")]
             TokenIdType::Nep245 => serde_json::to_vec(&[U128(refund)]),
+            _ => panic!("unsupported token type"),
         }
     }
 
@@ -176,6 +180,7 @@ impl Sent {
                         Err(_) => self.amount,
                     }
                 }
+                _ => panic!("unsupported token type"),
             }
             .min(self.amount)
         } else if promise_result_checked_void(result_idx).is_ok() {

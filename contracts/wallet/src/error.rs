@@ -1,11 +1,12 @@
-use defuse_wallet_core::NonceError;
-use near_sdk::{AccountId, FunctionError};
+use near_account_id::AccountId;
 use thiserror::Error as ThisError;
 
-pub type Result<T, E = Error> = ::core::result::Result<T, E>;
+use crate::NonceError;
 
-#[derive(Debug, ThisError, FunctionError)]
-pub enum Error {
+/// An error that can occur in [`Wallet`](crate::contract::Wallet) contract.
+#[cfg_attr(feature = "near-contract", derive(::near_sdk::FunctionError))]
+#[derive(Debug, ThisError)]
+pub enum ContractError {
     #[error("extension '{0}' is already enabled")]
     ExtensionEnabled(AccountId),
 

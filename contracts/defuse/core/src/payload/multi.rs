@@ -1,22 +1,26 @@
-use defuse_crypto::{Payload, SignedPayload};
-use defuse_erc191::SignedErc191Payload;
-use defuse_nep413::SignedNep413Payload;
-use defuse_sep53::SignedSep53Payload;
-use defuse_tip191::SignedTip191Payload;
-use defuse_ton_connect::SignedTonConnectPayload;
 use derive_more::derive::From;
-use near_sdk::{CryptoHash, near, serde::de::DeserializeOwned, serde_json};
+use near_sdk::{CryptoHash, serde::de::DeserializeOwned, serde_json};
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
-use crate::public_key::PublicKey;
+use crate::{
+    payload::{
+        Payload, SignedPayload, erc191::SignedErc191Payload, nep413::SignedNep413Payload,
+        sep53::SignedSep53Payload, tip191::SignedTip191Payload,
+        ton_connect::SignedTonConnectPayload,
+    },
+    public_key::PublicKey,
+};
 
 use super::{
     DefusePayload, ExtractDefusePayload, raw::SignedRawEd25519Payload,
     webauthn::SignedWebAuthnPayload,
 };
 
-#[near(serializers = [json])]
+#[serde_as]
+#[cfg_attr(feature = "abi", derive(::schemars::JsonSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize, From)]
 #[serde(tag = "standard", rename_all = "snake_case")]
-#[derive(Debug, Clone, From)]
 /// Assuming wallets want to interact with Intents protocol, besides preparing the data in a certain
 /// form, they have to have the capability to sign raw messages (off-chain signatures) using an algorithm we understand.
 /// This enum solves that problem.
