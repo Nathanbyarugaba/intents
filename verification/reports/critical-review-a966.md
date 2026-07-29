@@ -15,8 +15,8 @@ custody invariants were checked with machine-assisted methods driving **producti
 
 - randomized property harnesses (proptest) over the real engine (100k+ cases each),
 - Kani bounded proofs of the crypto-free fee-rate algebra,
-- a Quint model of the asynchronous FT withdraw/resolve lifecycle under adversarial promise
-  interleavings.
+- Quint models of the asynchronous FT withdraw/resolve, deposit-refund, and NFT-exclusivity
+  lifecycles under adversarial promise interleavings.
 
 One lower-severity, out-of-scope trust-boundary observation is documented in §Observations.
 
@@ -38,6 +38,7 @@ One lower-severity, out-of-scope trust-boundary observation is documented in §O
 | DEF-NON-001 | Production `Nonces` bitmap accepts each nonce at most once; cleanup clears | unit (real `Nonces`) | holds |
 | DEF-ASY-001/007 | FT withdraw/resolve keeps defuse **solvent** (`internal ≤ external`) under all interleavings with a compliant token; callback settles once | Quint model-check | holds, 300k runs |
 | DEF-ASY-003/006 | Deposit + `resolve_deposit_internal` refund (`min(requested, deposited, balance_left)`) preserves solvency even when the receiver spends the deposit before resolve; the `balance_left` cap is load-bearing (mutant without it → insolvency) | Quint model-check + mutant | holds, 200k runs |
+| DEF-ASY-002 | NFT internal supply is always in {0,1} (no duplication) and never held internally while gone externally, across deposit/withdraw/resolve cycles | Quint model-check | holds, 200k runs |
 | WAL-PRO-001 | No account-mutating NEAR action can be represented/deserialized as a `NearAction`; only nearcore tags {2 FunctionCall, 3 Transfer, 11 DeterministicStateInit} decode | proptest + exhaustive discriminant scan | holds |
 
 ## 2. Evidence & exact commands
@@ -54,9 +55,10 @@ cargo test -p defuse-verification-harnesses
 cargo kani -p defuse-verification-kani-arith
 cargo test -p defuse-verification-kani-arith     # proptest side, real toolchain
 
-# Quint async withdraw/resolve model
-quint typecheck  verification/quint/defuse_ft_withdraw.qnt
-quint run verification/quint/defuse_ft_withdraw.qnt --invariant=inv --max-steps=14 --max-samples=300000
+# Quint async models (withdraw/resolve, deposit-refund, NFT exclusivity)
+quint run verification/quint/defuse_ft_withdraw.qnt      --invariant=inv         --max-steps=14 --max-samples=300000
+quint run verification/quint/defuse_mt_deposit_resolve.qnt --invariant=inv_correct --max-steps=10 --max-samples=200000
+quint run verification/quint/defuse_nft_exclusivity.qnt  --invariant=inv         --max-steps=16 --max-samples=200000
 ```
 
 Observed results: all proptest suites `ok` (14 + 3 tests); Kani `2 successfully verified
@@ -129,6 +131,10 @@ harnesses, 0 failures`; Quint `inv`: `[ok] No violation found` over 300k traces.
   (settlement, conservation, fees, nonce) via an in-memory `State` mock; mutation tests.
 - `verification/kani-arith/**` — isolated Kani proofs for the `Pips` fee-rate algebra.
 - `verification/quint/defuse_ft_withdraw.qnt` — async FT withdraw/resolve model.
+- `verification/quint/defuse_mt_deposit_resolve.qnt` — deposit + `resolve_deposit_internal`
+  refund model (balance-cap load-bearing).
+- `verification/quint/defuse_nft_exclusivity.qnt` — NFT ownership-exclusivity model.
+- `verification/harnesses/src/wallet.rs` — wallet action allow-list (decode-boundary) harness.
 - `verification/reports/critical-review-a966.md` — this report.
 - `Cargo.toml` — added the two verification crates as workspace members (no production behavior
   change). The Kani MSRV workaround (`rust-version`) is applied only transiently and is **not**
