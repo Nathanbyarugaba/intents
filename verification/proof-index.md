@@ -15,8 +15,9 @@ Use a unique identifier in harness names, Quint invariants, tests, and findings.
 | DEF-NON-004 | `verification/harnesses/src/nonce.rs` | proptest (50k) | holds |
 | DEF-ASY-001/007 | `verification/quint/defuse_ft_withdraw.qnt` | Quint model-check (300k runs) | holds (compliant token) |
 | DEF-ASY-003/006 | `verification/quint/defuse_mt_deposit_resolve.qnt` | Quint model-check + mutant (200k runs) | holds; balance-cap load-bearing |
+| WAL-PRO-001 | `verification/harnesses/src/wallet.rs` | proptest + exhaustive discriminant scan | holds (action allow-list, decode boundary) |
 
-Remaining obligations (DEF-ASY-002/003 NFT/MT, DEF-SIG-*, AUTH-*, MIG-*, SIM-*, WAL-*, ESC-*)
+Remaining obligations (DEF-ASY-002 NFT, DEF-SIG-*, AUTH-*, MIG-*, SIM-*, WAL-AUT/NON/VAR-*, ESC-*)
 were reviewed statically; machine-checked coverage is a documented follow-up.
 
 

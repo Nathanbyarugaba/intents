@@ -20,7 +20,9 @@ defuse-token-id = { workspace = true, features = ["borsh", "serde"] }
 defuse-fees = { workspace = true, features = ["borsh", "serde"] }
 defuse-num-utils.workspace = true
 defuse-bitmap = { workspace = true, features = ["borsh"] }
+defuse-near-promise = { workspace = true, features = ["borsh"] }
 near-sdk = { workspace = true, features = ["unit-testing"] }
+borsh = { workspace = true }
 
 [dev-dependencies]
 proptest.workspace = true

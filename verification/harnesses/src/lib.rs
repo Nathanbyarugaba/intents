@@ -36,6 +36,7 @@ pub mod conservation;
 pub mod fees;
 pub mod nonce;
 pub mod settlement;
+pub mod wallet;
 
 /// An [`Inspector`] that ignores every event (so no NEAR VM context is
 /// required to run the engine off-chain).

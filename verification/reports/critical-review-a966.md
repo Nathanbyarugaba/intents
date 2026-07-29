@@ -38,6 +38,7 @@ One lower-severity, out-of-scope trust-boundary observation is documented in §O
 | DEF-NON-001 | Production `Nonces` bitmap accepts each nonce at most once; cleanup clears | unit (real `Nonces`) | holds |
 | DEF-ASY-001/007 | FT withdraw/resolve keeps defuse **solvent** (`internal ≤ external`) under all interleavings with a compliant token; callback settles once | Quint model-check | holds, 300k runs |
 | DEF-ASY-003/006 | Deposit + `resolve_deposit_internal` refund (`min(requested, deposited, balance_left)`) preserves solvency even when the receiver spends the deposit before resolve; the `balance_left` cap is load-bearing (mutant without it → insolvency) | Quint model-check + mutant | holds, 200k runs |
+| WAL-PRO-001 | No account-mutating NEAR action can be represented/deserialized as a `NearAction`; only nearcore tags {2 FunctionCall, 3 Transfer, 11 DeterministicStateInit} decode | proptest + exhaustive discriminant scan | holds |
 
 ## 2. Evidence & exact commands
 
@@ -116,8 +117,11 @@ harnesses, 0 failures`; Quint `inv`: `[ok] No violation found` over 300k traces.
 - **NEP-171/NEP-245 async & sandbox:** the Quint model covers the FT lifecycle; the NFT/MT
   resolve variants and a `near-workspaces` sandbox reproduction with an adversarial token remain
   as follow-ups (the code paths are structurally analogous and were reviewed statically).
-- Wallet `DeterministicStateInit` action matrix and simulation-parity (SIM-*) remain
-  proptest/differential-test candidates.
+- Wallet: the action allow-list is now covered at the deserialization boundary (WAL-PRO-001).
+  The self-call guard (`receiver_id == current_account_id`) and lockout (WAL-AUT-002) require a
+  near-sdk VM context and remain unit-test candidates in the wallet crate.
+- Simulation-parity (SIM-*) remains a differential-test candidate (needs the `defuse` contract +
+  near-sdk env; heavier than the core-level harnesses built here).
 
 ## 8. Files changed
 

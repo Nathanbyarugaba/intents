@@ -2013,9 +2013,11 @@ dependencies = [
 name = "defuse-verification-harnesses"
 version = "0.1.0"
 dependencies = [
+ "borsh",
  "defuse-bitmap",
  "defuse-core",
  "defuse-fees",
+ "defuse-near-promise",
  "defuse-num-utils",
  "defuse-token-id",
  "near-sdk",
