@@ -28,6 +28,7 @@ One lower-severity, out-of-scope trust-boundary observation is documented in §O
 |----|----------|--------|--------|
 | DEF-CON-002/004 | `TransferMatcher::finalize` accepts a settlement **iff** every token nets to zero; reported imbalance equals the true net | proptest (real matcher) | holds, 20k cases |
 | DEF-CON-001 | End-to-end `TokenDiff` + fee + production `closure_deltas` counter-order conserves total supply of every token and finalizes | proptest (real `Engine`/`Deltas`) | holds, 30k cases |
+| DEF-CON-001 | **Multi-party** (N signers + `closure_many` counter-order) conserves every token and finalizes | proptest (real `Engine`) | holds, 30k cases |
 | DEF-CON-001 | Internal `Transfer` conserves total supply and finalizes | proptest (real `Engine`) | holds |
 | DEF-FEE-001 | `Pips::from_pips` accepts exactly `0..=MAX`; `invert` is an involution complementing to `MAX` | **Kani (exhaustive)** | proved |
 | DEF-FEE-001 | `fee(a) ≤ fee_ceil(a) ≤ a`, rounding gap ≤ 1 | proptest | holds, 100k cases |

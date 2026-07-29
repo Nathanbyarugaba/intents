@@ -133,6 +133,107 @@ pub fn check_token_diff_conservation(a_deltas: [i128; 3], pips_raw: u32) {
     }
 }
 
+/// DEF-CON-001 (multi-party): N signers each submit an arbitrary `TokenDiff`;
+/// a single production `closure_many`-derived counter-order balances the whole
+/// batch. Executing all N+1 orders must finalize and conserve every token.
+pub fn check_multiparty_conservation(signer_deltas: Vec<[i128; 3]>, pips_raw: u32) {
+    let Some(fee) = Pips::from_pips(pips_raw) else {
+        return;
+    };
+    let tokens = tokens3();
+
+    // Build each signer's non-empty diff.
+    let mut signers: Vec<(AccountId, TokenDiff)> = Vec::new();
+    let mut all_pairs: Vec<(TokenId, i128)> = Vec::new();
+    for (i, d) in signer_deltas.iter().enumerate() {
+        let pairs: Vec<(TokenId, i128)> = tokens
+            .iter()
+            .cloned()
+            .zip(*d)
+            .filter(|(_, x)| *x != 0)
+            .collect();
+        if pairs.is_empty() {
+            continue;
+        }
+        all_pairs.extend(pairs.clone());
+        let acc: AccountId = format!("s{i}.near").parse().unwrap();
+        signers.push((
+            acc,
+            TokenDiff {
+                diff: to_deltas(pairs),
+                memo: None,
+                referral: None,
+            },
+        ));
+    }
+    if signers.is_empty() {
+        return;
+    }
+
+    // Production closure for the whole set.
+    let Some(closure_map) = TokenDiff::closure_deltas(all_pairs, fee) else {
+        return;
+    };
+    let closure_pairs: Vec<(TokenId, i128)> = closure_map.into_iter().collect();
+    if closure_pairs.is_empty() {
+        return;
+    }
+    let closer: AccountId = "closer.near".parse().unwrap();
+    signers.push((
+        closer,
+        TokenDiff {
+            diff: to_deltas(closure_pairs),
+            memo: None,
+            referral: None,
+        },
+    ));
+
+    // Seed every involved account + fee_collector uniformly.
+    let mut mock = MockState::new(fee);
+    let mut accts: Vec<AccountId> = signers.iter().map(|(a, _)| a.clone()).collect();
+    accts.push(mock.fee_collector.clone());
+    for a in &accts {
+        for t in &tokens {
+            mock.set_balance(a.as_ref(), t.clone(), B0);
+        }
+    }
+    let initial_total = (accts.len() as u128) * B0;
+
+    let mut engine = Engine::new(mock, NoopInspector);
+    for (acc, diff) in signers {
+        if diff.execute_intent(acc.as_ref(), &mut engine, HASH).is_err() {
+            return; // insufficient balance / invalid — not a conservation case
+        }
+    }
+
+    let mut totals = [0u128; 3];
+    for (ti, tok) in tokens.iter().enumerate() {
+        let mut s = 0u128;
+        for a in &accts {
+            s = s
+                .checked_add(engine.state.balance_of(a.as_ref(), tok))
+                .expect("total overflow");
+        }
+        totals[ti] = s;
+    }
+
+    let Engine { state, .. } = engine;
+    let res = state.finalize();
+    assert!(
+        res.is_ok(),
+        "multi-party closure batch failed to finalize (fee={pips_raw}): {:?}",
+        res.err()
+    );
+    for ti in 0..3 {
+        assert!(
+            totals[ti] == initial_total,
+            "multi-party token {ti}: total {} != initial {} => VALUE CREATED/DESTROYED (fee={pips_raw})",
+            totals[ti],
+            initial_total
+        );
+    }
+}
+
 /// DEF-CON-001 via internal `Transfer` (must always conserve & finalize Ok).
 pub fn check_transfer_conservation(amount: u128) {
     if amount == 0 {
@@ -216,6 +317,17 @@ mod tests {
         #[test]
         fn def_con_001_transfer_conservation(amount in any::<u128>()) {
             check_transfer_conservation(amount);
+        }
+
+        #[test]
+        fn def_con_001_multiparty_conservation(
+            signers in prop::collection::vec(
+                prop::array::uniform3(-1_000_000_000i128..=1_000_000_000i128),
+                1..=4,
+            ),
+            pips in 0u32..=Pips::MAX.as_pips(),
+        ) {
+            check_multiparty_conservation(signers, pips);
         }
     }
 
