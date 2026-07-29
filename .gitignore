@@ -1,2 +1,10 @@
 /target
 /res
+
+# Coq build artifacts
+*.vo
+*.vok
+*.vos
+*.glob
+*.aux
+*.lia.cache
