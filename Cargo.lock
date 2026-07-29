@@ -2023,6 +2023,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "defuse-verification-kani-arith"
+version = "0.1.0"
+dependencies = [
+ "defuse-fees",
+ "defuse-num-utils",
+ "proptest",
+]
+
+[[package]]
 name = "defuse-wallet"
 version = "0.1.0"
 dependencies = [

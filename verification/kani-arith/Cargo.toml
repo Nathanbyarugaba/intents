@@ -1,0 +1,22 @@
+[package]
+name = "defuse-verification-kani-arith"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+# Isolated Kani proofs for the crypto-free arithmetic kernels that underpin
+# settlement conservation (fee math + checked mul-div). Kept separate from the
+# proptest harnesses so Kani's toolchain does not need to compile the crypto /
+# near-sdk dependency tree. Verification-only; no production behavior changed.
+
+[lints]
+workspace = true
+
+[dependencies]
+defuse-fees = { workspace = true, features = ["borsh"] }
+defuse-num-utils.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
