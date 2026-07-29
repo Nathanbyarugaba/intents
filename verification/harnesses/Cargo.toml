@@ -1,0 +1,26 @@
+[package]
+name = "defuse-verification-harnesses"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+# Verification-only crate: drives PRODUCTION `defuse_core` logic through an
+# in-memory `State` mock to check custody/settlement invariants with Kani
+# (bounded proofs) and proptest (randomized) harnesses.
+# Does not modify any production behavior.
+
+[lints]
+workspace = true
+
+[dependencies]
+defuse-core = { workspace = true, features = ["arbitrary"] }
+defuse-token-id = { workspace = true, features = ["borsh", "serde"] }
+defuse-fees = { workspace = true, features = ["borsh", "serde"] }
+defuse-num-utils.workspace = true
+defuse-bitmap = { workspace = true, features = ["borsh"] }
+near-sdk = { workspace = true, features = ["unit-testing"] }
+
+[dev-dependencies]
+proptest.workspace = true

@@ -2010,6 +2010,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "defuse-verification-harnesses"
+version = "0.1.0"
+dependencies = [
+ "defuse-bitmap",
+ "defuse-core",
+ "defuse-fees",
+ "defuse-num-utils",
+ "defuse-token-id",
+ "near-sdk",
+ "proptest",
+]
+
+[[package]]
 name = "defuse-wallet"
 version = "0.1.0"
 dependencies = [

@@ -64,6 +64,8 @@ members = [
   "crates/testing/sandbox",
 
   "tests",
+
+  "verification/harnesses",
 ]
 resolver = "3"
 
