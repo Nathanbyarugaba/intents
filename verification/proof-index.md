@@ -2,6 +2,23 @@
 
 Use a unique identifier in harness names, Quint invariants, tests, and findings.
 
+## Evidence status (commit 3c2388e — see `reports/critical-review-a966.md`)
+
+| Obligation | Artifact | Method | Status |
+|-----------|----------|--------|--------|
+| DEF-CON-001 | `verification/harnesses/src/conservation.rs` | proptest over real `Engine`/`Deltas` (30k) | holds |
+| DEF-CON-002/004 | `verification/harnesses/src/settlement.rs` | proptest over real `TransferMatcher` (20k) + mutation tests | holds |
+| DEF-CON-003 | `verification/kani-arith` + `harnesses/fees.rs` | proptest (100k); Kani blocked by `bnum` | holds (proptest) |
+| DEF-FEE-001 | `verification/kani-arith` | **Kani exhaustive** (rate algebra) + proptest | proved / holds |
+| DEF-FEE-002 | `verification/harnesses/src/fees.rs` | proptest (50k) | holds |
+| DEF-NON-001 | `verification/harnesses/src/nonce.rs` | unit over real `Nonces` | holds |
+| DEF-NON-004 | `verification/harnesses/src/nonce.rs` | proptest (50k) | holds |
+| DEF-ASY-001/007 | `verification/quint/defuse_ft_withdraw.qnt` | Quint model-check (300k runs) | holds (compliant token) |
+
+Remaining obligations (DEF-ASY-002/003 NFT/MT, DEF-SIG-*, AUTH-*, MIG-*, SIM-*, WAL-*, ESC-*)
+were reviewed statically; machine-checked coverage is a documented follow-up.
+
+
 ## DEFUSE settlement
 
 - **DEF-CON-001 — Batch conservation:** for each token, final positive deltas, negative deltas, assessed fees, and transfers reconcile exactly.
