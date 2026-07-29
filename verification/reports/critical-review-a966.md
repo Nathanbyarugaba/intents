@@ -37,6 +37,7 @@ One lower-severity, out-of-scope trust-boundary observation is documented in §O
 | DEF-NON-004 | `VersionedNonce::maybe_from` is prefix-gated and a faithful round-trip bijection | proptest | holds, 50k cases |
 | DEF-NON-001 | Production `Nonces` bitmap accepts each nonce at most once; cleanup clears | unit (real `Nonces`) | holds |
 | DEF-ASY-001/007 | FT withdraw/resolve keeps defuse **solvent** (`internal ≤ external`) under all interleavings with a compliant token; callback settles once | Quint model-check | holds, 300k runs |
+| DEF-ASY-003/006 | Deposit + `resolve_deposit_internal` refund (`min(requested, deposited, balance_left)`) preserves solvency even when the receiver spends the deposit before resolve; the `balance_left` cap is load-bearing (mutant without it → insolvency) | Quint model-check + mutant | holds, 200k runs |
 
 ## 2. Evidence & exact commands
 
@@ -101,6 +102,9 @@ harnesses, 0 failures`; Quint `inv`: `[ok] No violation found` over 300k traces.
   the imbalance is **caught**. ✔
 - Quint: the `solvency_always` counterexample and the `settled_balanced→no_over_credit_at_rest`
   correction confirm the invariants are live (not vacuously true).
+- Quint (deposit refund): the `capByBalance=false` mutant of `resolve_deposit_internal` reaches a
+  negative receiver balance / insolvency, proving the production `balance_left` cap is
+  load-bearing. ✔
 
 ## 7. Remaining gaps
 
