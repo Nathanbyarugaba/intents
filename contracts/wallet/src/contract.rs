@@ -179,12 +179,20 @@ where
     S: SignatureSchema,
 {
     fn execute_signed(&mut self, msg: RequestMessage, proof: &str) -> Result<()> {
+        // TODO: change to the following when External Contract Calls land:
+        // if !msg.pay_for_gas && env::is_external() {
+        //     return Err(Error::UnauthorizedGasPayment);
+        // }
+        if msg.pay_for_gas {
+            env::panic_str("`pay_for_gas` is not currently supported");
+        }
+
         if !self.0.is_signature_allowed() {
             return Err(Error::SignatureDisabled);
         }
 
         // check chain_id
-        if msg.chain_id != utils::chain_id() {
+        if msg.chain_id != env::chain_id() {
             return Err(Error::InvalidChainId);
         }
 
@@ -337,13 +345,6 @@ impl<S: SignatureSchema> From<State<S::PublicKey>> for WalletImpl<S> {
     #[inline]
     fn from(state: State<S::PublicKey>) -> Self {
         Self(state)
-    }
-}
-
-mod utils {
-    // TODO: remove in favor of `env::chain_id()` when NEP-638 lands
-    pub fn chain_id() -> String {
-        "mainnet".to_string()
     }
 }
 

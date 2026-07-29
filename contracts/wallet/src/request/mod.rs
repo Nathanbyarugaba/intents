@@ -81,10 +81,17 @@ impl Request {
     /// Returns an esitmate of mininum gas required to execute all
     /// promises in this request
     pub fn estimate_gas(&self) -> Gas {
+        const BASE: Gas = Gas::from_tgas(5);
+        const PER_INTERNAL_OP: Gas = Gas::from_ggas(100);
+
+        let gas = BASE.saturating_add(
+            PER_INTERNAL_OP.saturating_mul(self.internal.len().try_into().unwrap_or(u64::MAX)),
+        );
+
         self.external
             .iter()
             .map(NearPromise::estimate_gas)
-            .fold(Gas::from_gas(0), Gas::saturating_add)
+            .fold(gas, Gas::saturating_add)
     }
 }
 
@@ -113,5 +120,19 @@ impl FromIterator<NearPromise> for Request {
         let mut r = Self::new();
         r.extend(iter);
         r
+    }
+}
+
+impl From<WalletOp> for Request {
+    #[inline]
+    fn from(op: WalletOp) -> Self {
+        Self::from_iter([op])
+    }
+}
+
+impl From<NearPromise> for Request {
+    #[inline]
+    fn from(p: NearPromise) -> Self {
+        Self::from_iter([p])
     }
 }

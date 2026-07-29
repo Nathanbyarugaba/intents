@@ -22,6 +22,9 @@ use serde_with::DurationSeconds;
 /// range for on-chain messages.
 pub const WALLET_DOMAIN: &[u8] = b"NEAR_WALLET_CONTRACT/V1";
 
+/// Chain id (e.g. `mainnet`)
+pub type ChainId = String;
+
 /// Signable message containing [`Request`] to execute via
 /// [`w_execute_signed()`](crate::contract::Wallet::w_execute_signed) contract
 /// method.
@@ -40,12 +43,31 @@ pub const WALLET_DOMAIN: &[u8] = b"NEAR_WALLET_CONTRACT/V1";
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RequestMessage {
+    /// _(Currently Unsupported)_
+    /// A flag indicating whether the [signer](field@Self::signer_id) has authorized
+    /// paying for the gas costs of executing this request from his own balance.
+    ///
+    /// If _set_, then the [`w_execute_signed()`](crate::contract::Wallet::w_execute_signed)
+    /// method MAY be executed as External Contract Call, in which case the wallet's account
+    /// will incurs gas costs for the whole transaction.
+    ///
+    /// If _not set_, then this request can only be relayed and executed as part of another
+    /// transaction.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "::core::ops::Not::not")
+    )]
+    pub pay_for_gas: bool,
+
     /// Chain id (e.g. `mainnet`).
+    ///
     /// MUST be equal to `chain_id` of the network.
-    pub chain_id: String,
+    pub chain_id: ChainId,
 
     /// Signer id.
-    /// MUST be equal to the `AccountId` of the wallet-contract instance.
+    ///
+    /// MUST be equal to the `AccountId` of the wallet-contract instance
+    /// executing this request.
     pub signer_id: AccountId,
 
     /// A non-sequential `timeout`-bounded nonce for this request.
@@ -72,23 +94,20 @@ pub struct RequestMessage {
         arbitrary(with = ::arbitrary_with::As::<RangeNanos::<0>>::arbitrary),
     )]
     #[cfg_attr(
-        feature = "borsh-schema",
+        feature = "borsh",
         borsh(
             serialize_with = "As::<TimestampNanoSeconds<u64>>::serialize",
             deserialize_with = "As::<TimestampNanoSeconds<u64>>::deserialize",
-            schema(with_funcs(
+        ),
+        cfg_attr(
+            feature = "borsh-schema",
+            borsh(schema(with_funcs(
                 definitions = "As::<TimestampNanoSeconds<u64>>::add_definitions_recursively",
                 declaration = "As::<TimestampNanoSeconds<u64>>::declaration",
-            ))
+            )))
         )
     )]
-    #[cfg_attr(
-        all(feature = "borsh", not(feature = "borsh-schema")),
-        borsh(
-            serialize_with = "As::<TimestampNanoSeconds<u64>>::serialize",
-            deserialize_with = "As::<TimestampNanoSeconds<u64>>::deserialize",
-        )
-    )]
+
     /// Timestamp when this request was created (in RFC-3339 format).
     ///
     /// # Optimal lag
@@ -103,21 +122,17 @@ pub struct RequestMessage {
     pub created_at: Timestamp,
 
     #[cfg_attr(
-        feature = "borsh-schema",
+        feature = "borsh",
         borsh(
             serialize_with = "As::<BorshDurationSeconds<u32>>::serialize",
             deserialize_with = "As::<BorshDurationSeconds<u32>>::deserialize",
-            schema(with_funcs(
+        ),
+        cfg_attr(
+            feature = "borsh-schema",
+            borsh(schema(with_funcs(
                 definitions = "As::<BorshDurationSeconds<u32>>::add_definitions_recursively",
                 declaration = "As::<BorshDurationSeconds<u32>>::declaration",
-            ))
-        )
-    )]
-    #[cfg_attr(
-        all(feature = "borsh", not(feature = "borsh-schema")),
-        borsh(
-            serialize_with = "As::<BorshDurationSeconds<u32>>::serialize",
-            deserialize_with = "As::<BorshDurationSeconds<u32>>::deserialize",
+            )))
         )
     )]
     #[cfg_attr(
@@ -126,6 +141,7 @@ pub struct RequestMessage {
         serde(rename = "timeout_secs")
     )]
     /// Maximum timeout for validity of this request after `created_at`.
+    ///
     /// The actual timeout for the request is `min(msg.timeout, contract.timeout)`
     /// to prevent replay attacks.
     pub timeout: Duration,
@@ -148,6 +164,7 @@ impl RequestMessage {
     /// # use defuse_wallet::{Request, RequestMessage, Timestamp};
     /// # use hex_literal::hex;
     /// let msg = RequestMessage {
+    ///     pay_for_gas: false,
     ///     chain_id: "mainnet".to_string(),
     ///     signer_id: "0s0000000000000000000000000000000000000000".parse().unwrap(),
     ///     nonce: 0,
@@ -158,7 +175,7 @@ impl RequestMessage {
     ///
     /// assert_eq!(
     ///     msg.hash(),
-    ///     hex!("e42ac706e27f0157624ee49fc4693c9cc9666c5e51358b7d57f79ee16005ded7"),
+    ///     hex!("a8df85c0e8793716904fd57e9bef7d83b12773508bd3c9fca554afbfb108d4b5"),
     /// );
     /// ```
     #[cfg(all(feature = "digest", feature = "borsh"))]
@@ -172,6 +189,24 @@ impl RequestMessage {
 
         hasher.0.finalize().into()
     }
+
+    /// Get a deadline for delivering this message to the wallet contract.
+    #[inline]
+    pub fn deadline(&self) -> Timestamp {
+        self.created_at.saturating_add_unsigned(self.timeout)
+    }
+
+    /// Get the time left before the [deadline](Self::deadline) or `None` if
+    /// reques has already expired or is from the future.
+    #[cfg(feature = "std")]
+    #[inline]
+    pub fn time_left(&self) -> Option<Duration> {
+        let now = Timestamp::now();
+        if now < self.created_at {
+            return None;
+        }
+        self.deadline().duration_since(now).ok()
+    }
 }
 
 #[cfg(test)]
@@ -182,10 +217,9 @@ mod tests {
     use super::*;
 
     #[rstest]
-    // https://nearblocks.io/txns/6vytw7NgAiPkJ3KYAyt18es4mDnwZ8knjpB7LHVJejAL
     #[case(
         r#"{"nonce":2845491008,"request":{"external":[{"actions":[{"action":"function_call","payload":{"args":"eyJyZXF1ZXN0Ijp7InBheWxvYWRfdjIiOnsiRWNkc2EiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIn0sImRvbWFpbl9pZCI6MCwicGF0aCI6IiJ9fQ==","deposit":"1","function_name":"sign"}}],"receiver_id":"v1.signer"}]},"chain_id":"mainnet","signer_id":"0se5eba21e8f191e1880e453794bc551dfa50a3419","created_at":"2026-07-07T11:13:29Z","timeout_secs":3600}"#,
-        hex!("06f269191431372337a0c606a15822e349bd0d5ec317704f97bef1a4ed6f5e1d"),
+        hex!("7c8560b51380551676a54dac49dcc1e009af3020556cde8e1e2172782ffd6775"),
     )]
     fn json_hash(#[case] json: &str, #[case] hash: [u8; 32]) {
         let msg: RequestMessage = serde_json::from_str(json).unwrap();

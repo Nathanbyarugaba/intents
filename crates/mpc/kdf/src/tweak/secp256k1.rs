@@ -16,8 +16,8 @@ impl Sealed for Secp256k1 {}
 #[cfg(test)]
 mod tests {
     use defuse_kdf::{
-        Additive, DeriveExt, Schema,
-        crypto::secp256k1::k256::{EncodedPoint, ecdsa::VerifyingKey},
+        Additive, Schema,
+        crypto::secp256k1::{Secp256k1UncompressedPublicKey, k256::ecdsa::VerifyingKey},
     };
     use hex_literal::hex;
     use near_account_id::AccountIdRef;
@@ -27,11 +27,9 @@ mod tests {
 
     use super::*;
 
-    type PublicKey = [u8; 64];
-
-    const SECP256K1_MPC_PK: PublicKey = hex!(
+    const SECP256K1_MPC_PK: Secp256k1UncompressedPublicKey = Secp256k1UncompressedPublicKey(hex!(
         "903a9a9933ed92bdda3fcf30ac999060a5a0fa51c2b6c74838d3029a5aadefe038f7e4a91714f42bb5a2459a0d294be0cd047b4a999d6fd912702470f843271d"
-    );
+    ));
 
     #[rstest]
     #[case(
@@ -52,22 +50,19 @@ mod tests {
     fn check_derivation(
         #[case] predecessor_id: &'static str,
         #[case] path: &str,
-        #[case] expected_derived_pk: PublicKey,
+        #[case] expected_derived_pk: impl Into<Secp256k1UncompressedPublicKey>,
     ) {
-        let master_pk = VerifyingKey::from_encoded_point(&EncodedPoint::from_untagged_bytes(
-            &SECP256K1_MPC_PK.into(),
-        ))
-        .unwrap();
+        let master_pk: VerifyingKey = SECP256K1_MPC_PK.try_into().unwrap();
         let predecessor_id = AccountIdRef::new(predecessor_id).unwrap();
 
         let schema =
-            Additive::<Secp256k1>::new(master_pk).derive(tweak::<Secp256k1>(predecessor_id));
+            Additive::<Secp256k1>::new(master_pk).derive_with(tweak::<Secp256k1>(predecessor_id));
 
-        let derived_pk = schema.derive_path(path);
+        let derived_pk = schema.derive(path);
 
         assert_eq!(
-            &derived_pk.to_encoded_point(false).as_bytes()[1..],
-            &expected_derived_pk,
+            &Secp256k1UncompressedPublicKey::from(derived_pk),
+            &expected_derived_pk.into(),
             "derived public key mismatch"
         );
     }

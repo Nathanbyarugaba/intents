@@ -15,15 +15,14 @@ crate-type = ["cdylib", "rlib"]
 defuse-crypto = { workspace = true, features = ["borsh", "ed25519", "fmt"] }
 defuse-wallet = { workspace = true, features = ["borsh", "digest"] }
 
-async-trait = { workspace = true, optional = true }
 defuse-wallet-sdk = { workspace = true, optional = true }
-
+derive_more = { workspace = true, features = ["as_ref", "from"], optional = true }
 near-sdk = { workspace = true, optional = true }
 
 [features]
 abi = ["defuse-crypto/abi", "defuse-wallet/abi", "near-sdk?/abi"]
 
-signer = ["dep:async-trait", "dep:defuse-wallet-sdk"]
+signer = ["defuse-crypto/signing", "dep:defuse-wallet-sdk", "dep:derive_more"]
 
 contract = [
   "defuse-crypto/borsh",
@@ -35,13 +34,16 @@ contract = [
 defuse-wallet-ed25519 = { path = ".", features = ["abi", "signer", "contract"] }
 
 hex-literal.workspace = true
+rand = { workspace = true, features = ["sys_rng"] }
 rstest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+tokio-test.workspace = true
 
 near-sdk = { workspace = true, features = ["unit-testing"] }
 
 [package.metadata.near.reproducible_build]
-image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
-image_digest = "sha256:ccb22bb4e677ed022d8b9d1aa1b32f0af52dd0471ef1c32e48dedbf68ee6ee17"
+image = "sourcescan/cargo-near:0.22.0-rust-1.97.1"
+image_digest = "sha256:7467038bdddc86484b73b416eeadce926ff59013e128e53dec5a19e1cb4b2234"
 passed_env = []
 container_build_command = [
   "cargo",
