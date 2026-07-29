@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c598a1e7c6fffcb59a479c9b16c8ae12bba73b91d2843efe11f78b28cd88ec82 # shrinks to ops = [Xfer { from: 2, to: 0, amounts: [1000, 0, 0] }], pips = 0
+cc 8d0ae2e49320d6bf52764066a5558c7c5f9cc6024e445fb3c81c6b4c70b9e2b3 # shrinks to ops = [Diff { signer: 2, deltas: [695, 0, 351] }, Diff { signer: 2, deltas: [0, 0, -1351] }], pips = 0
