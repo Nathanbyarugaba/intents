@@ -9,6 +9,9 @@
 //!
 //! No production behavior is modified.
 
+// `kani` is a custom cfg set only when running under `cargo kani`.
+#![allow(unexpected_cfgs)]
+
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},

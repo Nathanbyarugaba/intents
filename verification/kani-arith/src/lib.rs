@@ -13,6 +13,9 @@
 //!   The proptest versions exercise them across 100k random cases including
 //!   `u128::MAX` boundaries.
 
+// `kani` is a custom cfg set only when running under `cargo kani`.
+#![allow(unexpected_cfgs)]
+
 use defuse_fees::Pips;
 use defuse_num_utils::CheckedMulDiv;
 

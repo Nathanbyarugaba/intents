@@ -7,7 +7,10 @@
 
 #![allow(clippy::needless_range_loop)]
 
-use defuse_core::{engine::deltas::TransferMatcher, token_id::TokenId};
+use defuse_core::{
+    engine::deltas::{InvariantViolated, TransferMatcher, Transfers},
+    token_id::TokenId,
+};
 use near_sdk::AccountId;
 
 /// Number of accounts / tokens used in the bounded harness.
@@ -56,7 +59,14 @@ pub fn check_matcher(deltas: [[i128; N_TOK]; N_ACC]) {
         net[ti] = s;
     }
 
-    match m.finalize() {
+    assert_conservation(net, m.finalize());
+}
+
+/// The conservation assertion, factored out so it can be exercised against both
+/// the real matcher result and a deliberately-mutated one (see mutation tests).
+pub fn assert_conservation(net: [i128; N_TOK], result: Result<Transfers, InvariantViolated>) {
+    let tokens = tokens();
+    match result {
         Ok(_transfers) => {
             // SAFETY INVARIANT: a matched (accepted) settlement can only exist
             // when every token is perfectly balanced.
@@ -148,5 +158,32 @@ mod tests {
     #[test]
     fn single_unmatched_rejected() {
         check_matcher([[7, 0], [0, 0], [0, 0]]);
+    }
+
+    // ----------------------- MUTATION TESTS -----------------------
+    // Demonstrate the conservation harness is non-vacuous: inject the result a
+    // *mutated* (buggy) matcher would produce and confirm the harness FAILS.
+
+    use defuse_core::intents::token_diff::TokenDeltas;
+
+    /// Mutant: a matcher that ACCEPTS an unbalanced settlement (returns `Ok`
+    /// while +7 of token 0 was created). The harness must catch value creation.
+    #[test]
+    #[should_panic(expected = "VALUE CREATED/DESTROYED")]
+    fn mutation_accepting_unbalanced_is_caught() {
+        assert_conservation([7, 0], Ok(Transfers::default()));
+    }
+
+    /// Mutant: a matcher that under-reports the imbalance (claims balanced when
+    /// the true net is +7). The harness must catch the misreport.
+    #[test]
+    #[should_panic(expected = "reported unmatched delta")]
+    fn mutation_misreported_imbalance_is_caught() {
+        assert_conservation(
+            [7, 0],
+            Err(InvariantViolated::UnmatchedDeltas {
+                unmatched_deltas: TokenDeltas::default(),
+            }),
+        );
     }
 }

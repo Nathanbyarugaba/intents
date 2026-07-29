@@ -6,7 +6,7 @@
 //!   a "malformed magic-prefixed value silently downgraded to something usable".
 //! * `Nonces` (the production bitmap) accepts each nonce at most once.
 
-use defuse_core::{Nonce, Nonces, VersionedNonce};
+use defuse_core::{Nonce, VersionedNonce};
 
 /// DEF-NON-004: versioned-nonce parse is unambiguous & prefix-gated.
 pub fn check_versioned_roundtrip(n: Nonce) {
@@ -48,6 +48,7 @@ mod proofs {
 mod tests {
     use super::*;
     use defuse_bitmap::{U248, U256};
+    use defuse_core::Nonces;
     use proptest::prelude::*;
     use std::collections::HashMap;
 
