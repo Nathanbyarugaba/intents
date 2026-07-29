@@ -17,8 +17,9 @@ Use a unique identifier in harness names, Quint invariants, tests, and findings.
 | DEF-ASY-003/006 | `verification/quint/defuse_mt_deposit_resolve.qnt` | Quint model-check + mutant (200k runs) | holds; balance-cap load-bearing |
 | DEF-ASY-002 | `verification/quint/defuse_nft_exclusivity.qnt` | Quint model-check (200k runs) | holds (no duplication) |
 | WAL-PRO-001 | `verification/harnesses/src/wallet.rs` | proptest + exhaustive discriminant scan | holds (action allow-list, decode boundary) |
+| SIM-001/003 | `verification/harnesses/src/sim.rs` | differential proptest + regression | **VIOLATED → FINDING SIM-01** (simulate-only stale-zero) |
 
-Remaining obligations (DEF-SIG-*, AUTH-*, MIG-*, SIM-*, WAL-AUT/NON/VAR-*, ESC-*)
+Remaining obligations (DEF-SIG-*, AUTH-*, MIG-*, SIM-002 full, WAL-AUT/NON/VAR-*, ESC-*)
 were reviewed statically; machine-checked coverage is a documented follow-up.
 
 

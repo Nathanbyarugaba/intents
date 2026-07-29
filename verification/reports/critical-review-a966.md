@@ -9,8 +9,13 @@ resolution, migration integrity, wallet control.
 
 ## Verdict
 
-**No Critical/High vulnerability was found or reproduced within the stated scope.** The core
-custody invariants were checked with machine-assisted methods driving **production**
+**No Critical/High *custody* vulnerability was found or reproduced within the stated scope.**
+Real settlement, replay, and async custody paths are solvent/conservative under all tested
+interleavings. Differential testing did surface **one Medium simulation-correctness bug**
+(FINDING SIM-01) — a violation of the documented SIM invariant that affects only the read-only
+`simulate_intents` view, not real execution. See §Findings.
+
+The core custody invariants were checked with machine-assisted methods driving **production**
 `defuse_core` code:
 
 - randomized property harnesses (proptest) over the real engine (100k+ cases each),
@@ -40,6 +45,7 @@ One lower-severity, out-of-scope trust-boundary observation is documented in §O
 | DEF-ASY-003/006 | Deposit + `resolve_deposit_internal` refund (`min(requested, deposited, balance_left)`) preserves solvency even when the receiver spends the deposit before resolve; the `balance_left` cap is load-bearing (mutant without it → insolvency) | Quint model-check + mutant | holds, 200k runs |
 | DEF-ASY-002 | NFT internal supply is always in {0,1} (no duplication) and never held internally while gone externally, across deposit/withdraw/resolve cycles | Quint model-check | holds, 200k runs |
 | WAL-PRO-001 | No account-mutating NEAR action can be represented/deserialized as a `NearAction`; only nearcore tags {2 FunctionCall, 3 Transfer, 11 DeterministicStateInit} decode | proptest + exhaustive discriminant scan | holds |
+| SIM-001/003 | `simulate` (CachedState) vs `execute` (real) parity on success/failure, events, and balances | differential proptest + regression | **VIOLATED** → FINDING SIM-01 (simulation-only) |
 
 ## 2. Evidence & exact commands
 
@@ -54,6 +60,11 @@ cargo test -p defuse-verification-harnesses
 #   (temporarily set workspace.package.rust-version = "1.85.0", then:)
 cargo kani -p defuse-verification-kani-arith
 cargo test -p defuse-verification-kani-arith     # proptest side, real toolchain
+
+# SIM parity differential harness (surfaces FINDING SIM-01)
+cargo test -p defuse-verification-harnesses sim::tests::finding_sim01_cached_stale_zero_readback
+cargo test -p defuse-verification-harnesses sim::tests::finding_sim01_cached_double_spend_accepted
+cargo test -p defuse-verification-harnesses -- --ignored sim_execute_parity   # broad parity (fails until fixed)
 
 # Quint async models (withdraw/resolve, deposit-refund, NFT exclusivity)
 quint run verification/quint/defuse_ft_withdraw.qnt      --invariant=inv         --max-steps=14 --max-samples=300000
@@ -78,7 +89,11 @@ harnesses, 0 failures`; Quint `inv`: `[ok] No violation found` over 300k traces.
 
 ## 4. Counterexamples
 
-- **Within scope (compliant token):** none. `inv` holds across 300k randomized interleavings.
+- **FINDING SIM-01** (simulate/execute divergence): `finding_sim01_cached_stale_zero_readback`
+  and `finding_sim01_cached_double_spend_accepted` in `verification/harnesses/src/sim.rs` — see
+  §Findings. Deterministic.
+- **Within scope (compliant token, async custody):** none. `inv` holds across 300k randomized
+  interleavings.
 - **Trust-boundary witness (out of scope):** with a **malicious/non-conforming** token, the
   unguarded `solvency_always` invariant is violated — a token that keeps the transferred amount
   yet returns malformed data (`Ok(Err)`) from `ft_transfer_call` drives `internal > external`.
@@ -122,8 +137,9 @@ harnesses, 0 failures`; Quint `inv`: `[ok] No violation found` over 300k traces.
 - Wallet: the action allow-list is now covered at the deserialization boundary (WAL-PRO-001).
   The self-call guard (`receiver_id == current_account_id`) and lockout (WAL-AUT-002) require a
   near-sdk VM context and remain unit-test candidates in the wallet crate.
-- Simulation-parity (SIM-*) remains a differential-test candidate (needs the `defuse` contract +
-  near-sdk env; heavier than the core-level harnesses built here).
+- Simulation-parity (SIM-*) is now differentially tested at the core level and produced
+  FINDING SIM-01. Extending to auth/nonce deltas (SIM-003 full) and event-decision parity under
+  more intent kinds remains a follow-up.
 
 ## 8. Files changed
 
@@ -135,10 +151,68 @@ harnesses, 0 failures`; Quint `inv`: `[ok] No violation found` over 300k traces.
   refund model (balance-cap load-bearing).
 - `verification/quint/defuse_nft_exclusivity.qnt` — NFT ownership-exclusivity model.
 - `verification/harnesses/src/wallet.rs` — wallet action allow-list (decode-boundary) harness.
+- `verification/harnesses/src/sim.rs` — simulate/execute differential parity harness (found
+  FINDING SIM-01) + regression tests + positive control.
 - `verification/reports/critical-review-a966.md` — this report.
 - `Cargo.toml` — added the two verification crates as workspace members (no production behavior
   change). The Kani MSRV workaround (`rust-version`) is applied only transiently and is **not**
   committed.
+
+## Findings
+
+### FINDING SIM-01 — `CachedState::balance_of` returns a stale balance after a cached value reaches zero (simulation-only). Severity: **Medium**
+
+- **Affected commit / feature / paths:** `3c2388e`; feature `contract`;
+  `contracts/defuse/core/src/engine/state/cached.rs` (`CachedState::balance_of`,
+  `CachedState::internal_sub_balance`/`internal_add_balance`), interacting with
+  `contracts/defuse/core/src/amounts.rs` (`Amounts` over `DefaultMap`, which deletes
+  zero-valued entries). Reached via `Contract::simulate_intents`
+  (`contracts/defuse/src/contract/intents/mod.rs:47`, the only `.cached()` caller).
+- **Violated invariant:** SIM-001 / SIM-003 — "cached (simulate) and real (execute) return the
+  same synchronous result/error and the same balance deltas."
+- **Public entry point & call chain:** `simulate_intents(signed)` → `Engine::new(self.cached())`
+  → `execute_signed_intents` → `TokenDiff`/`Transfer`/withdraw `execute_intent` →
+  `Deltas::internal_sub_balance` → `CachedState::internal_sub_balance` /
+  `CachedState::balance_of`.
+- **Root cause:** `CachedState` is a two-layer buffer (cache map over a read-only base view).
+  `Amounts` uses a `DefaultMap` that **removes an entry once it becomes 0**. So when a cached
+  balance is debited to exactly `0`, its cache entry is deleted. Subsequently:
+  - `balance_of` finds no cache entry and **falls back to the base view**
+    (`self.view.balance_of(...)`), returning the *original* on-chain balance instead of `0`;
+  - `internal_sub_balance`/`internal_add_balance` see `token_amounts.get(id).is_none()` and
+    **re-copy the base balance**, so the spent-to-zero amount is re-initialised from on-chain.
+  The real single-layer `Contract` state has no base-view fallback (`amount_for` returns `0` for
+  an absent entry), so execution is correct — the defect is exclusive to `CachedState`.
+- **Attacker prerequisites / trusted roles:** none beyond crafting signed intents; no special
+  role. But see impact/scope below.
+- **Deterministic reproduction:** `verification/harnesses/src/sim.rs`:
+  - `finding_sim01_cached_stale_zero_readback` — after crediting `+351` then debiting `-1351`
+    on a balance of `1000` (net `0`), execute reports `0` while simulate reports `1000`.
+  - `finding_sim01_cached_double_spend_accepted` — spending `1000` then `1000` again:
+    `execute` rejects the second (insufficient), `simulate` **accepts** it.
+  - `parity_holds_without_zero_crossing` (positive control) — parity holds when no balance is
+    driven to exactly zero, isolating the defect to the zero-cleanup fallback.
+- **Before/after state:** simulate can report a batch as solvent/successful (and emit transfer
+  previews) for intents that real execution correctly rejects with `BalanceOverflow` /
+  `InvariantViolated`.
+- **NEAR semantic validation:** `simulate_intents` is a view call; it does not persist state or
+  move funds. `execute_intents` uses the real state and is unaffected.
+- **Impact / severity rationale:** **No direct loss of funds or unauthorized access** — real
+  execution is correct, so custody is safe. Impact is limited to inaccurate simulation:
+  integrators (relayers/solvers) that rely on `simulate_intents` to pre-check solvency or preview
+  transfers can be misled into submitting a batch that then fails on-chain (wasted gas) or into
+  mispricing. Because the only attacker-facing exploitation (feeding a solver a batch that
+  simulates-OK but executes-FAIL) yields no attacker profit, that vector is out of scope
+  (griefing); the underlying **invariant violation is in scope** (simulation must match
+  execution) and is a genuine correctness defect → Medium.
+- **Minimal remediation direction:** make the cache layer distinguish "absent" from
+  "explicitly zero". Options: (a) have `CachedState` track the set of *touched* tokens per
+  account and, for touched tokens, treat a missing map entry as `0` (do not fall back to the
+  view / do not re-copy the base); or (b) use a non-cleaning map for the cache layer so a `0`
+  entry is retained; or (c) store `Option<u128>`/a "shadowed" marker in the cache.
+- **Regression property/test:** the three `sim.rs` tests above; when fixed, the two `finding_*`
+  tests (which currently assert the buggy values) will fail and must be updated to assert parity,
+  and the ignored `sim_execute_parity` proptest should be un-ignored.
 
 ## Observations (lower severity, out of scope)
 
