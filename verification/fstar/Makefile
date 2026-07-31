@@ -25,7 +25,8 @@ MODULES := \
   Defuse.AsyncResolve.fst \
   Defuse.SigDomain.fst \
   Defuse.MtResolve.fst \
-  Defuse.NftResolve.fst
+  Defuse.NftResolve.fst \
+  Defuse.LockAuth.fst
 
 .PHONY: all verify install clean $(basename $(MODULES))
 
