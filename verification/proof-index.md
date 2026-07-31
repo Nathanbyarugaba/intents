@@ -58,6 +58,60 @@ Use a unique identifier in harness names, Quint invariants, tests, and findings.
 - **SIM-002 — Cached and real state make the same event-emission decisions.**
 - **SIM-003 — Cached balance/auth/nonce deltas equal real pre-promise deltas.**
 
+## F\* model-proof obligations (see `verification/fstar/` and `verification/reports/fstar-report.md`)
+
+These are **Model proofs** (F\* + Z3) over faithful transliterations of the Rust logic. Each is
+non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
+
+- **FSM-1 (`Defuse.Settlement.fst`) — Settlement conservation:** greedy `finalize_into` result depends
+  only on per-account net sums; `finalize` accepts ⇔ every token nets to zero; overflow sentinel `Err(0)`
+  cannot mask a genuine unmatched delta; order-independent. Covers DEF-CON-001/002/004.
+- **FSM-2 (`Defuse.Fees.fst`) — Fee arithmetic:** `fee_ceil(a) <= a`, `fee <= fee_ceil <= fee+1`,
+  monotonicity, and no-panic (`unreachable!` unreachable). Covers DEF-FEE-001.
+- **FSM-3 (`Defuse.Closure.fst`) — Closure round-trip:** `supply_delta(d)+supply_delta(closure_delta(d))==0`
+  for all `i128`/fees when defined; definedness at extremes. Solver-facing (not the on-chain path).
+- **FSM-4 (`Defuse.Nonce.fst`) — Nonce replay/cleanup:** commit at-most-once; cleanup-by-prefix cannot
+  resurrect a still-valid nonce (cleanability is a function of the 248-bit word prefix); DEF-NON-004
+  downgrade characterized. Covers DEF-NON-001/002/004.
+- **FSM-5 (`Defuse.AsyncResolve.fst`) — Async FT resolve:** `used+refund==amount`, `used<=amount` even
+  for over-reporting tokens; no double-settle. Covers DEF-ASY-001/007 (synchronous decision table only).
+- **FSM-6 (`Defuse.SigDomain.fst`) — Signature domain separation:** curve partition (ed25519/secp256k1/
+  p256) + disjoint signed byte strings across the four plain ed25519 standards (distinct SHA-256 domain
+  prefixes / length) ⇒ no cross-standard replay; signer/key binding. Covers DEF-SIG-003 (WebAuthn arm
+  argued informally). Records the RawEd25519 tag-less-signing observation.
+- **FSM-7 (`Defuse.MtResolve.fst`) — MT resolve:** per-item `used+refund==amount` under adversarial/
+  wrong-length callbacks; over-report and balance caps; receiver never overdrawn. Covers DEF-ASY-003.
+- **FSM-8 (`Defuse.NftResolve.fst`) — NFT resolve:** the unit is either used or refunded, never both nor
+  lost (`receiver+sender==1`). Covers DEF-ASY-002.
+- **FSM-9 (`Defuse.LockAuth.fst`) — Lock/authorization freeze:** a locked, non-forced account cannot be
+  debited, cannot change authorization, and cannot commit a nonce (so it cannot execute any signed
+  intent); balances are non-decreasing; the access-controlled force role is the sole bypass. Covers
+  AUTH-002 / DEF-ASY-005. Records the SIM-001 add-zero simulate-vs-real observation.
+- **FSM-11 (`Defuse.Migration.fst`) — Migration integrity:** magic-prefix disambiguation (legacy <
+  u32::MAX), `decode(encode)==id`, V0/V1→Account field preservation (balances/keys/nonces/flags/lock),
+  and cross-migration nonce replay protection (legacy nonce always used; cleanup can't resurrect).
+  Covers MIG-001/002/003.
+- **FSM-12 (`Defuse.AsyncLifecycle.fst`) — Async interleavings:** value conservation across ANY
+  adversarial schedule of withdrawal initiations/resolutions; at-most-once settlement; no double-spend;
+  refund-under-lock safe. Covers DEF-ASY-007/005/001 (operational model).
+- **FSM-13 (`Defuse.WalletPromise.fst`) — Wallet promise auth:** an accepted wallet promise never
+  self-calls nor carries an account-mutating action (flat 3-variant `NearAction`, flat `NearPromise`,
+  allow-list + self-call check); fan-out checked. Covers WAL-PRO-001.
+- **FSM-14 (`Defuse.WalletAuth.fst`) — Wallet no-lockout:** every op sequence preserves at least one
+  authorization path (signature or an extension). Covers WAL-AUT-002.
+- **FSM-15 (`Defuse.WalletNonce.fst`) — Wallet dual-window nonce:** a live signed request cannot be
+  replayed (retention ≥ validity window across any rotation schedule; `min` window bound). Covers
+  WAL-NON-001/002.
+- **FSM-16 (`Defuse.PoaAuth.fst`) — PoA mint/deploy authorization:** no unauthorized mint (only token
+  owner=factory or DAO|TokenDepositer); deploy is DAO|TokenDeployer-gated and yields a factory-owned
+  token; pause blocks both. Covers AUTH-003 (bridge mint authority).
+- **FSM-17 (`Defuse.PoaToken.fst`) — PoA token:** supply conservation across mint/burn/transfer;
+  owner-only mint; no burn underflow; dot-free token-name → account-id injectivity (no spoofing).
+- **FSM-18 (`Defuse.SimRefine.fst`) — Simulate/real refinement:** `CachedState` (simulate) and `Contract`
+  (execute) make the same accept/reject decision for every mutating method; the sole divergence is
+  `internal_add_balance` at `amount == 0` (SIM-001, unreachable from well-formed intents). Covers
+  SIM-001/002/003.
+
 ## Wallet
 
 - **WAL-NON-001 — Dual-window nonce is accepted at most once while valid.**
