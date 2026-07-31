@@ -48,6 +48,7 @@ make -C verification/fstar Defuse.Fees  # prove a single module
 | `Defuse.WalletNonce.fst` | WAL-NON-001/002, FSM-15  | Dual-window nonce: no replay of a still-valid signed request. |
 | `Defuse.PoaAuth.fst`     | AUTH-003, FSM-16         | PoA bridge: no unauthorized mint/deploy (role-gated; factory-owned tokens). |
 | `Defuse.PoaToken.fst`    | (PoA custody), FSM-17    | PoA token supply conservation, owner-only mint, name→account injectivity. |
+| `Defuse.SimRefine.fst`   | SIM-001/002/003, FSM-18  | simulate_intents ≡ execute_intents accept/reject decisions (except add(0)). |
 
 ## Explicit exclusions (by request)
 

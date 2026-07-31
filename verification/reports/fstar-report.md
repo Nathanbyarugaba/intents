@@ -34,6 +34,7 @@ informational observation are documented.
 | FSM-15 | `Defuse.WalletNonce.fst` | WAL-NON-001/002 | **Dual-window nonce**: a committed message cannot be replayed while still valid — retention (≥ `timeout`) provably exceeds the validity window (`min(self.timeout, msg.timeout) ≤ timeout`), so the used-bit test rejects a live replay across ANY adversarial cleanup/rotation schedule. | ✅ proved |
 | FSM-16 | `Defuse.PoaAuth.fst` | AUTH-003 | **PoA bridge: no unauthorized mint** — a mint is reachable only by the token owner (= the factory) or a caller holding DAO\|TokenDepositer; `deploy_token` requires DAO\|TokenDeployer and the deployed token is owned by the factory (never attacker-pre-owned); paused ⇒ deploy/mint rejected; a role-less non-factory principal can neither mint nor deploy. | ✅ proved |
 | FSM-17 | `Defuse.PoaToken.fst` | (PoA custody) | PoA token supply is conserved (`supply == acting_balance + rest`) across mint/burn/transfer; mint is owner-only; burn requires sufficient balance (no underflow); dot-free token names map **injectively** to account ids (no account spoofing). | ✅ proved |
+| FSM-18 | `Defuse.SimRefine.fst` | SIM-001/002/003 | **`simulate_intents` faithfully predicts `execute_intents`**: the two `State` impls (`CachedState` vs `Contract`) make the **same accept/reject decision** for every mutating method (debit, auth, nonce), so a simulation cannot report a success/failure that real execution would contradict — **except** `internal_add_balance` at `amount == 0` (SIM-001, unreachable from a well-formed intent), which is characterized exactly. | ✅ proved |
 
 Every module also contains `kani::cover!`-style **witnesses** proving each relevant branch/boundary class
 is reachable (see §5).
@@ -70,6 +71,7 @@ make -C verification/fstar verify
 # ==== Defuse.WalletNonce.fst ====  All verification conditions discharged successfully   (Phase 5)
 # ==== Defuse.PoaAuth.fst ====      All verification conditions discharged successfully   (Phase 6)
 # ==== Defuse.PoaToken.fst ====     All verification conditions discharged successfully   (Phase 6)
+# ==== Defuse.SimRefine.fst ====    All verification conditions discharged successfully   (Phase 7)
 # ALL F* MODULES VERIFIED
 ```
 
@@ -237,6 +239,7 @@ by F\* (confirming the real proofs are non-vacuous):
 | `Mut_WalletNonce.fst`| shrink retention to a single window (allow valid replay)    | rejected ✅ |
 | `Mut_PoaAuth.fst`    | drop the role gate on `factory.ft_deposit` (anyone mints)   | rejected ✅ |
 | `Mut_PoaToken.fst`   | drop the owner check on mint (anyone mints)                 | rejected ✅ |
+| `Mut_SimRefine.fst`  | make cached debit ignore the lock (sim accepts, real rejects)| rejected ✅ |
 
 Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutations/run.sh`.
 
@@ -272,6 +275,8 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   `TokenDiff` rejects `delta == 0`), and the impact is limited to a mis-optimistic simulation whose real
   transaction simply reverts (no custody loss). Recorded as a **robustness/consistency observation**, not
   a finding. Optional fix: reject `amount == 0` in `CachedState::internal_add_balance` to match production.
+  FSM-18 formally proves this is the **only** simulate-vs-real decision divergence across all mutating
+  methods (all other accept/reject decisions agree exactly).
 
 ---
 
@@ -297,7 +302,11 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   `#[access_control_any]`/`#[only]` macro expansions and `near_contract_standards` NEP-141 internals are
   trusted libraries (not re-verified). PoA unit tests are absent; behavior is exercised by the
   integration suite (`tests/src/tests/poa/`).
-- **Escrow** (`escrow-swap`) and full **`simulate_intents` refinement** (SIM-*) remain out of scope.
+- FSM-18 proves the simulate-vs-real refinement at the **per-method accept/reject decision** level (the
+  SIM-001/002/003 essence, since both paths run the same engine); it does not re-model the entire engine
+  state transition byte-for-byte.
+- **Escrow** (`escrow-swap`) remains out of scope (excluded by request). The small `global-deployer` /
+  `outlayer` / `treasury-logger` contracts and byte-exact WebAuthn are candidates for a future pass.
 - FSM-1's account-level conservation is proved at the net-sum granularity; a byte-exact model of the
   `HashMap` iteration order and `Transfers` event assembly is not attempted (not needed for the
   value-conservation property, which is order-independent).
@@ -327,7 +336,8 @@ Added under `verification/` only (no production code modified):
 - `verification/fstar/Defuse.WalletNonce.fst` — FSM-15 (Phase 5).
 - `verification/fstar/Defuse.PoaAuth.fst` — FSM-16 (Phase 6).
 - `verification/fstar/Defuse.PoaToken.fst` — FSM-17 (Phase 6).
-- `verification/fstar/mutations/*` — non-vacuity checks (16) + `run.sh`.
+- `verification/fstar/Defuse.SimRefine.fst` — FSM-18 (Phase 7).
+- `verification/fstar/mutations/*` — non-vacuity checks (17) + `run.sh`.
 - `verification/fstar/{Makefile,README.md,install.sh,env.sh,.gitignore}` — reproducible toolchain.
 - `verification/reports/fstar-report.md` — this report.
 - `verification/proof-index.md` — cross-references to FSM-1..5 (doc update).

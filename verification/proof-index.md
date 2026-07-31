@@ -107,6 +107,10 @@ non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
   token; pause blocks both. Covers AUTH-003 (bridge mint authority).
 - **FSM-17 (`Defuse.PoaToken.fst`) — PoA token:** supply conservation across mint/burn/transfer;
   owner-only mint; no burn underflow; dot-free token-name → account-id injectivity (no spoofing).
+- **FSM-18 (`Defuse.SimRefine.fst`) — Simulate/real refinement:** `CachedState` (simulate) and `Contract`
+  (execute) make the same accept/reject decision for every mutating method; the sole divergence is
+  `internal_add_balance` at `amount == 0` (SIM-001, unreachable from well-formed intents). Covers
+  SIM-001/002/003.
 
 ## Wallet
 
