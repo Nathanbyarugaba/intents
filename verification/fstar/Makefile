@@ -28,7 +28,10 @@ MODULES := \
   Defuse.NftResolve.fst \
   Defuse.LockAuth.fst \
   Defuse.AsyncLifecycle.fst \
-  Defuse.Migration.fst
+  Defuse.Migration.fst \
+  Defuse.WalletPromise.fst \
+  Defuse.WalletAuth.fst \
+  Defuse.WalletNonce.fst
 
 .PHONY: all verify install clean $(basename $(MODULES))
 
