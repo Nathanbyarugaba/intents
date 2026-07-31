@@ -26,6 +26,7 @@ informational observation are documented.
 | FSM-6 | `Defuse.SigDomain.fst` | DEF-SIG-003 | **No cross-standard signature replay**: recovered-key **curve partition** (ed25519 / secp256k1 / p256) blocks replay across families; within the ed25519 family, the four "plain" standards (NEP-413/SEP-53/TonConnect/RawEd25519) sign **disjoint byte strings** (distinct SHA-256 domain prefixes modulo collision resistance, and length separation for the raw JSON); signer/key binding (`has_public_key`) modeled. | ✅ proved |
 | FSM-7 | `Defuse.MtResolve.fst` | DEF-ASY-003 | MT `mt_resolve_transfer` per-item conservation `used + refund == amount` even under adversarial callbacks (over-reported refund, wrong-length vector → full-refund fallback); receiver→sender move is value-preserving; over a duplicated-token sequence the receiver is **never overdrawn**. | ✅ proved |
 | FSM-8 | `Defuse.NftResolve.fst` | DEF-ASY-002 | NFT `nft_resolve_withdraw` unit is **either used or refunded, never both nor lost** (`receiver_units + sender_units == 1`); the failed-`nft_transfer_call` "keep" branch is characterized. | ✅ proved |
+| FSM-9 | `Defuse.LockAuth.fst` | AUTH-002, DEF-ASY-005 | **Locked-account freeze**: a locked, non-forced account can never be debited, have its authorization changed (keys / auth-by-predecessor), or commit a nonce; its balances are **non-decreasing**; since every signed intent commits a nonce first, a locked account cannot execute any signed intent; the access-controlled **force** role is the sole lock bypass. | ✅ proved |
 
 Every module also contains `kani::cover!`-style **witnesses** proving each relevant branch/boundary class
 is reachable (see §5).
@@ -54,6 +55,7 @@ make -C verification/fstar verify
 # ==== Defuse.SigDomain.fst ====    All verification conditions discharged successfully   (Phase 2)
 # ==== Defuse.MtResolve.fst ====    All verification conditions discharged successfully   (Phase 2)
 # ==== Defuse.NftResolve.fst ====   All verification conditions discharged successfully   (Phase 2)
+# ==== Defuse.LockAuth.fst ====     All verification conditions discharged successfully   (Phase 3)
 # ALL F* MODULES VERIFIED
 ```
 
@@ -132,6 +134,17 @@ properties most likely to hide a custody bug were actively probed and proven saf
   version byte is in the prefix. (Additionally, legacy nonces live in a separate map that cleanup never
   touches — `MaybeLegacyNonces::cleanup_by_prefix` only clears the new map.)
 
+**Adversarial coverage (Phase 3).** An adversarial reading of the stateful/authorization paths
+(`engine/state/cached.rs`, `contract/intents/state.rs`, `contract/tokens/mod.rs`, `accounts/account/mod.rs`,
+and every `intents/*`) yielded **no custody/authorization bypass**:
+- Every intent moves value only **from the authenticated signer** (`internal_sub_balance(signer, …)`),
+  and `Transfer` rejects `sender == receiver` — there is no cross-account theft primitive.
+- The account **lock** is enforced identically in both `State` impls; FSM-9 proves a locked non-forced
+  account is fully frozen (no debit, no auth change, no nonce commit), with the access-controlled force
+  role as the only documented bypass.
+- Authorization for signed intents requires the recovered key to be registered for the signer
+  (FSM-6 DS-3), and a locked signer cannot even commit a nonce (FSM-9 LA-2).
+
 **Excluded (by request):** `escrow-swap`; the **known** NEP-245 MT-"split" protocol-fee bypass
 (`TokenDiff::token_fee` returns `ZERO` for `amount <= 1`); and unbounded gas/storage. These were not
 modeled and are not reported.
@@ -169,6 +182,7 @@ by F\* (confirming the real proofs are non-vacuous):
 | `Mut_SigDomain.fst`  | give two standards the SAME domain prefix (no separation)   | rejected ✅ |
 | `Mut_MtResolve.fst`  | drop the `min(amount)` refund cap (over-report inflates)    | rejected ✅ |
 | `Mut_NftResolve.fst` | refund the NFT unit regardless of `used` (duplication)      | rejected ✅ |
+| `Mut_LockAuth.fst`   | make `internal_sub_balance` skip the lock (drain frozen acct)| rejected ✅ |
 
 Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutations/run.sh`.
 
@@ -195,6 +209,15 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   exclusion** (`verification/assumptions.md`), so this is recorded as a robustness observation, not a
   Critical/High finding. Optional hardening: require a fixed domain prefix inside the raw-signed bytes.
   Note the *contract-internal* standards remain mutually domain-separated (FSM-6 DS-1/DS-2).
+
+- **SIM-001 simulate-vs-real add-zero divergence.** `CachedState::internal_add_balance` (used by
+  `simulate_intents`) does **not** reject a `0` amount, whereas the real `Contract::internal_add_balance`
+  returns `InvalidIntent` on `amount == 0`. A simulation of an intent that credits `0` could therefore
+  report success while on-chain execution reverts. Reachability from a well-formed intent appears nil (the
+  credit paths — `TokenDiff` positive deltas, fee collection, mint/deposit — all use `amount > 0`, and
+  `TokenDiff` rejects `delta == 0`), and the impact is limited to a mis-optimistic simulation whose real
+  transaction simply reverts (no custody loss). Recorded as a **robustness/consistency observation**, not
+  a finding. Optional fix: reject `amount == 0` in `CachedState::internal_add_balance` to match production.
 
 ---
 
@@ -230,7 +253,8 @@ Added under `verification/` only (no production code modified):
 - `verification/fstar/Defuse.SigDomain.fst` — FSM-6 (Phase 2).
 - `verification/fstar/Defuse.MtResolve.fst` — FSM-7 (Phase 2).
 - `verification/fstar/Defuse.NftResolve.fst` — FSM-8 (Phase 2).
-- `verification/fstar/mutations/*` — non-vacuity checks (8) + `run.sh`.
+- `verification/fstar/Defuse.LockAuth.fst` — FSM-9 (Phase 3).
+- `verification/fstar/mutations/*` — non-vacuity checks (9) + `run.sh`.
 - `verification/fstar/{Makefile,README.md,install.sh,env.sh,.gitignore}` — reproducible toolchain.
 - `verification/reports/fstar-report.md` — this report.
 - `verification/proof-index.md` — cross-references to FSM-1..5 (doc update).

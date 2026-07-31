@@ -83,6 +83,10 @@ non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
   wrong-length callbacks; over-report and balance caps; receiver never overdrawn. Covers DEF-ASY-003.
 - **FSM-8 (`Defuse.NftResolve.fst`) — NFT resolve:** the unit is either used or refunded, never both nor
   lost (`receiver+sender==1`). Covers DEF-ASY-002.
+- **FSM-9 (`Defuse.LockAuth.fst`) — Lock/authorization freeze:** a locked, non-forced account cannot be
+  debited, cannot change authorization, and cannot commit a nonce (so it cannot execute any signed
+  intent); balances are non-decreasing; the access-controlled force role is the sole bypass. Covers
+  AUTH-002 / DEF-ASY-005. Records the SIM-001 add-zero simulate-vs-real observation.
 
 ## Wallet
 

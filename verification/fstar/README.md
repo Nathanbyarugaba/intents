@@ -40,6 +40,7 @@ make -C verification/fstar Defuse.Fees  # prove a single module
 | `Defuse.SigDomain.fst`   | DEF-SIG-003, FSM-6       | No cross-standard signature replay (curve partition + disjoint signed bytes). |
 | `Defuse.MtResolve.fst`   | DEF-ASY-003, FSM-7       | MT resolve per-item conservation & callback vector-shape safety.        |
 | `Defuse.NftResolve.fst`  | DEF-ASY-002, FSM-8       | NFT resolve: unit is either used or refunded, never both nor lost.      |
+| `Defuse.LockAuth.fst`    | AUTH-002/DEF-ASY-005, FSM-9 | Locked account is frozen (no debit/auth-change/nonce); force is the sole bypass. |
 
 ## Explicit exclusions (by request)
 
