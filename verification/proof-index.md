@@ -58,6 +58,24 @@ Use a unique identifier in harness names, Quint invariants, tests, and findings.
 - **SIM-002 — Cached and real state make the same event-emission decisions.**
 - **SIM-003 — Cached balance/auth/nonce deltas equal real pre-promise deltas.**
 
+## F\* model-proof obligations (see `verification/fstar/` and `verification/reports/fstar-report.md`)
+
+These are **Model proofs** (F\* + Z3) over faithful transliterations of the Rust logic. Each is
+non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
+
+- **FSM-1 (`Defuse.Settlement.fst`) — Settlement conservation:** greedy `finalize_into` result depends
+  only on per-account net sums; `finalize` accepts ⇔ every token nets to zero; overflow sentinel `Err(0)`
+  cannot mask a genuine unmatched delta; order-independent. Covers DEF-CON-001/002/004.
+- **FSM-2 (`Defuse.Fees.fst`) — Fee arithmetic:** `fee_ceil(a) <= a`, `fee <= fee_ceil <= fee+1`,
+  monotonicity, and no-panic (`unreachable!` unreachable). Covers DEF-FEE-001.
+- **FSM-3 (`Defuse.Closure.fst`) — Closure round-trip:** `supply_delta(d)+supply_delta(closure_delta(d))==0`
+  for all `i128`/fees when defined; definedness at extremes. Solver-facing (not the on-chain path).
+- **FSM-4 (`Defuse.Nonce.fst`) — Nonce replay/cleanup:** commit at-most-once; cleanup-by-prefix cannot
+  resurrect a still-valid nonce (cleanability is a function of the 248-bit word prefix); DEF-NON-004
+  downgrade characterized. Covers DEF-NON-001/002/004.
+- **FSM-5 (`Defuse.AsyncResolve.fst`) — Async FT resolve:** `used+refund==amount`, `used<=amount` even
+  for over-reporting tokens; no double-settle. Covers DEF-ASY-001/007 (synchronous decision table only).
+
 ## Wallet
 
 - **WAL-NON-001 — Dual-window nonce is accepted at most once while valid.**
