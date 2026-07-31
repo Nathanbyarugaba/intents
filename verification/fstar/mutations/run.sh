@@ -14,7 +14,8 @@ FLAGS="--z3version 4.15.3 --warn_error -321 --ext context_pruning --z3rlimit 200
 
 fail=0
 for m in Mut_Fees Mut_Settlement Mut_Closure Mut_Nonce Mut_AsyncResolve \
-         Mut_SigDomain Mut_MtResolve Mut_NftResolve Mut_LockAuth; do
+         Mut_SigDomain Mut_MtResolve Mut_NftResolve Mut_LockAuth \
+         Mut_AsyncLifecycle Mut_Migration; do
   echo "==== $m (expect REJECTION) ===="
   if "$FSTAR" $FLAGS "$here/$m.fst" >/dev/null 2>&1; then
     echo "  UNEXPECTED: $m verified (proof would be VACUOUS)"; fail=1
