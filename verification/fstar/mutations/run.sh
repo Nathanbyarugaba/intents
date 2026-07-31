@@ -13,7 +13,8 @@ FSTAR="$FSTAR_HOME/bin/fstar.exe"
 FLAGS="--z3version 4.15.3 --warn_error -321 --ext context_pruning --z3rlimit 200 --include $here/.."
 
 fail=0
-for m in Mut_Fees Mut_Settlement Mut_Closure Mut_Nonce Mut_AsyncResolve; do
+for m in Mut_Fees Mut_Settlement Mut_Closure Mut_Nonce Mut_AsyncResolve \
+         Mut_SigDomain Mut_MtResolve Mut_NftResolve; do
   echo "==== $m (expect REJECTION) ===="
   if "$FSTAR" $FLAGS "$here/$m.fst" >/dev/null 2>&1; then
     echo "  UNEXPECTED: $m verified (proof would be VACUOUS)"; fail=1

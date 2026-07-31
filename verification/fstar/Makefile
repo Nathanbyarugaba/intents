@@ -22,7 +22,10 @@ MODULES := \
   Defuse.Settlement.fst \
   Defuse.Closure.fst \
   Defuse.Nonce.fst \
-  Defuse.AsyncResolve.fst
+  Defuse.AsyncResolve.fst \
+  Defuse.SigDomain.fst \
+  Defuse.MtResolve.fst \
+  Defuse.NftResolve.fst
 
 .PHONY: all verify install clean $(basename $(MODULES))
 
