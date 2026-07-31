@@ -17,7 +17,7 @@ for m in Mut_Fees Mut_Settlement Mut_Closure Mut_Nonce Mut_AsyncResolve \
          Mut_SigDomain Mut_MtResolve Mut_NftResolve Mut_LockAuth \
          Mut_AsyncLifecycle Mut_Migration \
          Mut_WalletPromise Mut_WalletAuth Mut_WalletNonce \
-         Mut_PoaAuth Mut_PoaToken; do
+         Mut_PoaAuth Mut_PoaToken Mut_SimRefine; do
   echo "==== $m (expect REJECTION) ===="
   if "$FSTAR" $FLAGS "$here/$m.fst" >/dev/null 2>&1; then
     echo "  UNEXPECTED: $m verified (proof would be VACUOUS)"; fail=1

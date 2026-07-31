@@ -33,7 +33,8 @@ MODULES := \
   Defuse.WalletAuth.fst \
   Defuse.WalletNonce.fst \
   Defuse.PoaAuth.fst \
-  Defuse.PoaToken.fst
+  Defuse.PoaToken.fst \
+  Defuse.SimRefine.fst
 
 .PHONY: all verify install clean $(basename $(MODULES))
 
