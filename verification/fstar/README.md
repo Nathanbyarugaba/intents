@@ -37,6 +37,9 @@ make -C verification/fstar Defuse.Fees  # prove a single module
 | `Defuse.Closure.fst`     | FSM-3                    | `supply_delta`/`closure` round-trip nets to zero (solver-facing).      |
 | `Defuse.Nonce.fst`       | DEF-NON-001/002/004, FSM-4| Nonce at-most-once, cleanup safety, versioned-downgrade characterization.|
 | `Defuse.AsyncResolve.fst`| DEF-ASY-001/007, FSM-5   | `used + refund == amount`; never double-settle.                         |
+| `Defuse.SigDomain.fst`   | DEF-SIG-003, FSM-6       | No cross-standard signature replay (curve partition + disjoint signed bytes). |
+| `Defuse.MtResolve.fst`   | DEF-ASY-003, FSM-7       | MT resolve per-item conservation & callback vector-shape safety.        |
+| `Defuse.NftResolve.fst`  | DEF-ASY-002, FSM-8       | NFT resolve: unit is either used or refunded, never both nor lost.      |
 
 ## Explicit exclusions (by request)
 

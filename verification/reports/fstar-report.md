@@ -23,6 +23,9 @@ informational observation are documented.
 | FSM-3 | `Defuse.Closure.fst` | FSM-3 (solver) | The advertised `supply_delta(d) + supply_delta(closure_delta(d)) == 0` round-trip holds for **all** `i128` deltas and **all** valid fees whenever the option computations are defined; definedness at extremes (`inv==0`, `i128::MIN`) returns `None` (no panic). | ✅ proved |
 | FSM-4 | `Defuse.Nonce.fst` | DEF-NON-001/002/004 | Commit is at-most-once; **cleanup-by-prefix cannot resurrect a still-valid nonce** because cleanability is a function of the 248-bit word prefix alone (version/salt/deadline all lie in the prefix); versioned vs. downgraded-legacy nonces can never share a word; DEF-NON-004 downgrade characterized precisely. | ✅ proved |
 | FSM-5 | `Defuse.AsyncResolve.fst` | DEF-ASY-001/007 | `used <= amount` and `used + refund == amount` in every branch — even for an over-reporting malicious token; `used`/`refund` partition the amount (no double settlement); the intentional "no refund on failed `ft_transfer_call`" branch is characterized. | ✅ proved |
+| FSM-6 | `Defuse.SigDomain.fst` | DEF-SIG-003 | **No cross-standard signature replay**: recovered-key **curve partition** (ed25519 / secp256k1 / p256) blocks replay across families; within the ed25519 family, the four "plain" standards (NEP-413/SEP-53/TonConnect/RawEd25519) sign **disjoint byte strings** (distinct SHA-256 domain prefixes modulo collision resistance, and length separation for the raw JSON); signer/key binding (`has_public_key`) modeled. | ✅ proved |
+| FSM-7 | `Defuse.MtResolve.fst` | DEF-ASY-003 | MT `mt_resolve_transfer` per-item conservation `used + refund == amount` even under adversarial callbacks (over-reported refund, wrong-length vector → full-refund fallback); receiver→sender move is value-preserving; over a duplicated-token sequence the receiver is **never overdrawn**. | ✅ proved |
+| FSM-8 | `Defuse.NftResolve.fst` | DEF-ASY-002 | NFT `nft_resolve_withdraw` unit is **either used or refunded, never both nor lost** (`receiver_units + sender_units == 1`); the failed-`nft_transfer_call` "keep" branch is characterized. | ✅ proved |
 
 Every module also contains `kani::cover!`-style **witnesses** proving each relevant branch/boundary class
 is reachable (see §5).
@@ -42,12 +45,15 @@ Proofs (all modules typecheck / all properties discharged):
 
 ```bash
 make -C verification/fstar verify
-# ==== Defuse.Arith.fst ====      All verification conditions discharged successfully
-# ==== Defuse.Fees.fst ====       All verification conditions discharged successfully
-# ==== Defuse.Settlement.fst ==== All verification conditions discharged successfully
-# ==== Defuse.Closure.fst ====    All verification conditions discharged successfully
-# ==== Defuse.Nonce.fst ====      All verification conditions discharged successfully
-# ==== Defuse.AsyncResolve.fst == All verification conditions discharged successfully
+# ==== Defuse.Arith.fst ====        All verification conditions discharged successfully
+# ==== Defuse.Fees.fst ====         All verification conditions discharged successfully
+# ==== Defuse.Settlement.fst ====   All verification conditions discharged successfully
+# ==== Defuse.Closure.fst ====      All verification conditions discharged successfully
+# ==== Defuse.Nonce.fst ====        All verification conditions discharged successfully
+# ==== Defuse.AsyncResolve.fst ==== All verification conditions discharged successfully
+# ==== Defuse.SigDomain.fst ====    All verification conditions discharged successfully   (Phase 2)
+# ==== Defuse.MtResolve.fst ====    All verification conditions discharged successfully   (Phase 2)
+# ==== Defuse.NftResolve.fst ====   All verification conditions discharged successfully   (Phase 2)
 # ALL F* MODULES VERIFIED
 ```
 
@@ -73,6 +79,11 @@ audited commit):
 cargo test -p defuse-core --lib -- token_diff deltas amounts
 # test result: ok. 52 passed; 0 failed; ... (closure_delta round-trip, deltas transfer conservation,
 #                                             deltas unmatched, amounts invariant)
+
+# Phase 2 fidelity: signature domain prefixes + payload verify/hash
+cargo test -p defuse-nep413 -p defuse-erc191 -p defuse-tip191 -p defuse-sep53   # all pass
+cargo test -p defuse-core --lib -- payload
+# test result: ok. 3 passed (payload::multi::raw_ed25519, payload::webauthn::{p256,ed25519})
 ```
 
 ---
@@ -94,7 +105,12 @@ cargo test -p defuse-core --lib -- token_diff deltas amounts
   predicates that read only prefix bytes.
 - **Abstraction boundaries.** The pure models intentionally omit NEAR promise interleavings, gas/storage,
   serialization byte-exactness (beyond the nonce layout needed for FSM-4), and cross-contract effects.
-  FSM-5 models the synchronous resolver decision table only.
+  FSM-5/7/8 model the synchronous resolver decision tables only.
+- **Crypto assumptions (FSM-6).** `sha256` is modeled as **injective** (a symbolic stand-in for collision
+  resistance) with a 32-byte output; `ed25519`/`secp256k1`/`p256` are trusted primitives (consistent with
+  `verification/assumptions.md` #3). A well-formed `DefusePayload` JSON body is assumed `> 32` bytes
+  (it must carry signer_id, verifying_contract, deadline, a 32-byte base64 nonce, and the message), which
+  gives length separation between the raw-JSON standard and the 32-byte digest standards.
 
 ---
 
@@ -150,6 +166,9 @@ by F\* (confirming the real proofs are non-vacuous):
 | `Mut_Closure.fst`    | closure divides by fee `f` instead of `inv f = MAX-f`      | rejected ✅ |
 | `Mut_Nonce.fst`      | cleanability reads the in-word bit (index 31, not in prefix)| rejected ✅ |
 | `Mut_AsyncResolve.fst`| drop `.min(amount)` guard on the token-reported amount     | rejected ✅ |
+| `Mut_SigDomain.fst`  | give two standards the SAME domain prefix (no separation)   | rejected ✅ |
+| `Mut_MtResolve.fst`  | drop the `min(amount)` refund cap (over-report inflates)    | rejected ✅ |
+| `Mut_NftResolve.fst` | refund the NFT unit regardless of `used` (duplication)      | rejected ✅ |
 
 Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutations/run.sh`.
 
@@ -166,15 +185,30 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   hardening (optional): reject nonces that carry the magic prefix but fail versioned parsing, instead of
   silently downgrading to legacy.
 
+- **DEF-SIG-003 RawEd25519 tag-less signing.** `SignedRawEd25519Payload::verify` checks the ed25519
+  signature over the **raw JSON bytes with no domain tag** (`payload.as_bytes()`), and
+  `extract_defuse_payload` is `serde_json::from_str(payload)`. Consequently, *any* ed25519 signature a
+  user ever produces over bytes that happen to form a valid `DefusePayload` JSON is a valid intent under
+  that user's registered key. This is inherent to tag-less raw signing (the standard exists for wallets
+  like Phantom that sign raw bytes) and is bounded by the per-account key registration
+  (`has_public_key`) and single-use nonces. Off-chain key reuse/compromise is a **documented scope
+  exclusion** (`verification/assumptions.md`), so this is recorded as a robustness observation, not a
+  Critical/High finding. Optional hardening: require a fixed domain prefix inside the raw-signed bytes.
+  Note the *contract-internal* standards remain mutually domain-separated (FSM-6 DS-1/DS-2).
+
 ---
 
 ## 8. Remaining gaps
 
 - NEAR **async promise interleavings** for withdrawal/refund (DEF-ASY-004/005/006) are not modeled in pure
-  F\*; FSM-5 covers only the synchronous resolver decision table. A Quint model (per the repo plan) remains
-  the right tool for interleavings.
-- **Escrow** (`escrow-swap`), **wallet**, **migration/simulation** (MIG-*/SIM-*), and multi-standard
-  **signature domain separation** (DEF-SIG-*) are out of scope for this F\* pass.
+  F\*; FSM-5/7/8 cover only the synchronous resolver decision tables. A Quint model (per the repo plan)
+  remains the right tool for interleavings.
+- **FSM-6 scope:** DS-1 byte-disjointness is formally proved for the four "plain" ed25519 standards
+  (NEP-413/SEP-53/TonConnect/RawEd25519). The **WebAuthn** assertion structure
+  (`authenticatorData ‖ sha256(clientDataJSON)`, challenge = the payload hash) is not fully modeled; it is
+  argued informally to be distinct (length ≥ 69 vs the 32-byte digests) and is separated from the
+  secp256k1 standards by curve. A byte-exact WebAuthn model is a follow-up.
+- **Escrow** (`escrow-swap`), **wallet**, and **migration/simulation** (MIG-*/SIM-*) remain out of scope.
 - FSM-1's account-level conservation is proved at the net-sum granularity; a byte-exact model of the
   `HashMap` iteration order and `Transfers` event assembly is not attempted (not needed for the
   value-conservation property, which is order-independent).
@@ -193,7 +227,10 @@ Added under `verification/` only (no production code modified):
 - `verification/fstar/Defuse.Closure.fst` — FSM-3.
 - `verification/fstar/Defuse.Nonce.fst` — FSM-4.
 - `verification/fstar/Defuse.AsyncResolve.fst` — FSM-5.
-- `verification/fstar/mutations/*` — non-vacuity checks + `run.sh`.
+- `verification/fstar/Defuse.SigDomain.fst` — FSM-6 (Phase 2).
+- `verification/fstar/Defuse.MtResolve.fst` — FSM-7 (Phase 2).
+- `verification/fstar/Defuse.NftResolve.fst` — FSM-8 (Phase 2).
+- `verification/fstar/mutations/*` — non-vacuity checks (8) + `run.sh`.
 - `verification/fstar/{Makefile,README.md,install.sh,env.sh,.gitignore}` — reproducible toolchain.
 - `verification/reports/fstar-report.md` — this report.
 - `verification/proof-index.md` — cross-references to FSM-1..5 (doc update).

@@ -75,6 +75,14 @@ non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
   downgrade characterized. Covers DEF-NON-001/002/004.
 - **FSM-5 (`Defuse.AsyncResolve.fst`) — Async FT resolve:** `used+refund==amount`, `used<=amount` even
   for over-reporting tokens; no double-settle. Covers DEF-ASY-001/007 (synchronous decision table only).
+- **FSM-6 (`Defuse.SigDomain.fst`) — Signature domain separation:** curve partition (ed25519/secp256k1/
+  p256) + disjoint signed byte strings across the four plain ed25519 standards (distinct SHA-256 domain
+  prefixes / length) ⇒ no cross-standard replay; signer/key binding. Covers DEF-SIG-003 (WebAuthn arm
+  argued informally). Records the RawEd25519 tag-less-signing observation.
+- **FSM-7 (`Defuse.MtResolve.fst`) — MT resolve:** per-item `used+refund==amount` under adversarial/
+  wrong-length callbacks; over-report and balance caps; receiver never overdrawn. Covers DEF-ASY-003.
+- **FSM-8 (`Defuse.NftResolve.fst`) — NFT resolve:** the unit is either used or refunded, never both nor
+  lost (`receiver+sender==1`). Covers DEF-ASY-002.
 
 ## Wallet
 
