@@ -46,6 +46,8 @@ make -C verification/fstar Defuse.Fees  # prove a single module
 | `Defuse.WalletPromise.fst`| WAL-PRO-001, FSM-13     | Wallet promise can't self-call or perform account-mutating actions. |
 | `Defuse.WalletAuth.fst`  | WAL-AUT-002, FSM-14      | Wallet keeps ≥1 authorization path (no lockout/bricking). |
 | `Defuse.WalletNonce.fst` | WAL-NON-001/002, FSM-15  | Dual-window nonce: no replay of a still-valid signed request. |
+| `Defuse.PoaAuth.fst`     | AUTH-003, FSM-16         | PoA bridge: no unauthorized mint/deploy (role-gated; factory-owned tokens). |
+| `Defuse.PoaToken.fst`    | (PoA custody), FSM-17    | PoA token supply conservation, owner-only mint, name→account injectivity. |
 
 ## Explicit exclusions (by request)
 

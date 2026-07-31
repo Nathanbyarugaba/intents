@@ -32,6 +32,8 @@ informational observation are documented.
 | FSM-13 | `Defuse.WalletPromise.fst` | WAL-PRO-001 | **Wallet cannot be made to take over its own account**: an accepted wallet promise never self-calls and carries only safe actions (FunctionCall/Transfer/DeterministicStateInit); dangerous/account-mutating actions are rejected (and aren't even representable in the flat 3-variant `NearAction`); every fan-out promise is checked. | ✅ proved |
 | FSM-14 | `Defuse.WalletAuth.fst` | WAL-AUT-002 | **No lockout**: any op sequence preserves `signature_enabled ∨ extensions ≠ ∅` (at least one authorization path always remains); `check_lockout` blocks disabling the last path; redundant toggles are rejected. | ✅ proved |
 | FSM-15 | `Defuse.WalletNonce.fst` | WAL-NON-001/002 | **Dual-window nonce**: a committed message cannot be replayed while still valid — retention (≥ `timeout`) provably exceeds the validity window (`min(self.timeout, msg.timeout) ≤ timeout`), so the used-bit test rejects a live replay across ANY adversarial cleanup/rotation schedule. | ✅ proved |
+| FSM-16 | `Defuse.PoaAuth.fst` | AUTH-003 | **PoA bridge: no unauthorized mint** — a mint is reachable only by the token owner (= the factory) or a caller holding DAO\|TokenDepositer; `deploy_token` requires DAO\|TokenDeployer and the deployed token is owned by the factory (never attacker-pre-owned); paused ⇒ deploy/mint rejected; a role-less non-factory principal can neither mint nor deploy. | ✅ proved |
+| FSM-17 | `Defuse.PoaToken.fst` | (PoA custody) | PoA token supply is conserved (`supply == acting_balance + rest`) across mint/burn/transfer; mint is owner-only; burn requires sufficient balance (no underflow); dot-free token names map **injectively** to account ids (no account spoofing). | ✅ proved |
 
 Every module also contains `kani::cover!`-style **witnesses** proving each relevant branch/boundary class
 is reachable (see §5).
@@ -66,6 +68,8 @@ make -C verification/fstar verify
 # ==== Defuse.WalletPromise.fst === All verification conditions discharged successfully   (Phase 5)
 # ==== Defuse.WalletAuth.fst ====   All verification conditions discharged successfully   (Phase 5)
 # ==== Defuse.WalletNonce.fst ====  All verification conditions discharged successfully   (Phase 5)
+# ==== Defuse.PoaAuth.fst ====      All verification conditions discharged successfully   (Phase 6)
+# ==== Defuse.PoaToken.fst ====     All verification conditions discharged successfully   (Phase 6)
 # ALL F* MODULES VERIFIED
 ```
 
@@ -106,6 +110,10 @@ cargo test -p defuse --lib -- entry nonces
 # Phase 5 fidelity: wallet + flat NearPromise
 cargo test -p defuse-wallet          # pass (incl. Nonces::commit doctest: dual-window used-bit reject)
 cargo test -p defuse-near-promise    # 12 pass (incl. borsh_has_not_changed: flat promise layout)
+
+# Phase 6 fidelity: PoA crates compile; behavior exercised by integration tests
+cargo test -p defuse-poa-token -p defuse-poa-factory   # crates compile (unit tests: none)
+#   PoA deploy/deposit/authorization are covered by integration tests in tests/src/tests/poa/mod.rs
 ```
 
 ---
@@ -178,6 +186,11 @@ and every `intents/*`) yielded **no custody/authorization bypass**:
   representable) and `NearPromise` is flat (no nested-promise bypass), so `build_promise`'s single-level
   allow-list + self-call check is complete (FSM-13). The wallet cannot be bricked (FSM-14) and a live
   signed request cannot be replayed within its validity window (FSM-15).
+- **PoA bridge (Phase 6).** Minting is gated end-to-end: the token's `ft_deposit` is owner-only, the
+  factory owns every token it deploys, and the factory's mint trigger requires DAO|TokenDepositer; deploy
+  requires DAO|TokenDeployer; both are pausable. No role-less principal can mint or deploy (FSM-16), token
+  supply is conserved, and dot-free names map injectively to accounts so no bridged token can spoof
+  another's account (FSM-17).
 
 **Excluded (by request):** `escrow-swap`; the **known** NEP-245 MT-"split" protocol-fee bypass
 (`TokenDiff::token_fee` returns `ZERO` for `amount <= 1`); and unbounded gas/storage. These were not
@@ -222,6 +235,8 @@ by F\* (confirming the real proofs are non-vacuous):
 | `Mut_WalletPromise.fst`| add the dangerous action to the allow-list                | rejected ✅ |
 | `Mut_WalletAuth.fst` | drop `check_lockout` (allow bricking the wallet)            | rejected ✅ |
 | `Mut_WalletNonce.fst`| shrink retention to a single window (allow valid replay)    | rejected ✅ |
+| `Mut_PoaAuth.fst`    | drop the role gate on `factory.ft_deposit` (anyone mints)   | rejected ✅ |
+| `Mut_PoaToken.fst`   | drop the owner check on mint (anyone mints)                 | rejected ✅ |
 
 Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutations/run.sh`.
 
@@ -278,8 +293,11 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   signature verification (ed25519 / webauthn) and byte-exact `RequestMessage` hashing are trusted
   (analogous to FSM-6's crypto assumptions). FSM-15 abstracts the rotation clock into an adversarial list
   of cleanup times.
-- **Escrow** (`escrow-swap`), the **PoA** token/factory, and full **`simulate_intents` refinement**
-  (SIM-*) remain out of scope.
+- FSM-16/17 model the PoA authorization matrix and custom supply transitions; the `near_plugins`
+  `#[access_control_any]`/`#[only]` macro expansions and `near_contract_standards` NEP-141 internals are
+  trusted libraries (not re-verified). PoA unit tests are absent; behavior is exercised by the
+  integration suite (`tests/src/tests/poa/`).
+- **Escrow** (`escrow-swap`) and full **`simulate_intents` refinement** (SIM-*) remain out of scope.
 - FSM-1's account-level conservation is proved at the net-sum granularity; a byte-exact model of the
   `HashMap` iteration order and `Transfers` event assembly is not attempted (not needed for the
   value-conservation property, which is order-independent).
@@ -307,7 +325,9 @@ Added under `verification/` only (no production code modified):
 - `verification/fstar/Defuse.WalletPromise.fst` — FSM-13 (Phase 5).
 - `verification/fstar/Defuse.WalletAuth.fst` — FSM-14 (Phase 5).
 - `verification/fstar/Defuse.WalletNonce.fst` — FSM-15 (Phase 5).
-- `verification/fstar/mutations/*` — non-vacuity checks (14) + `run.sh`.
+- `verification/fstar/Defuse.PoaAuth.fst` — FSM-16 (Phase 6).
+- `verification/fstar/Defuse.PoaToken.fst` — FSM-17 (Phase 6).
+- `verification/fstar/mutations/*` — non-vacuity checks (16) + `run.sh`.
 - `verification/fstar/{Makefile,README.md,install.sh,env.sh,.gitignore}` — reproducible toolchain.
 - `verification/reports/fstar-report.md` — this report.
 - `verification/proof-index.md` — cross-references to FSM-1..5 (doc update).

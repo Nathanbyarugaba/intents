@@ -102,6 +102,11 @@ non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
 - **FSM-15 (`Defuse.WalletNonce.fst`) — Wallet dual-window nonce:** a live signed request cannot be
   replayed (retention ≥ validity window across any rotation schedule; `min` window bound). Covers
   WAL-NON-001/002.
+- **FSM-16 (`Defuse.PoaAuth.fst`) — PoA mint/deploy authorization:** no unauthorized mint (only token
+  owner=factory or DAO|TokenDepositer); deploy is DAO|TokenDeployer-gated and yields a factory-owned
+  token; pause blocks both. Covers AUTH-003 (bridge mint authority).
+- **FSM-17 (`Defuse.PoaToken.fst`) — PoA token:** supply conservation across mint/burn/transfer;
+  owner-only mint; no burn underflow; dot-free token-name → account-id injectivity (no spoofing).
 
 ## Wallet
 
