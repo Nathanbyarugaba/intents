@@ -1,0 +1,8 @@
+# F* + Z3 toolchain binaries (downloaded, not committed)
+.tools/
+# F* build artifacts
+*.checked
+*.checked.lax
+_output/
+extracted/
+*.ml.tmp
