@@ -162,3 +162,17 @@ let cdiv_upper (a p : nat) (d:pos)
     FStar.Math.Lemmas.distributivity_add_left a 1 d;   // (a+1)*d = a*d + d
     let q = cdiv (a * p) d in
     if q > a then FStar.Math.Lemmas.lemma_mult_le_left d (a + 1) q else ()
+
+/// Ceil/floor composition round-trip used by TokenDiff closure reasoning:
+///   floor( ceil(d*m / inv) * inv / m ) == d      for d,inv,m > 0 and inv <= m.
+let ceil_floor_roundtrip (d inv m : pos)
+  : Lemma (requires inv <= m)
+          (ensures fdiv ((cdiv (d * m) inv) * inv) m == d)
+  = let q = cdiv (d * m) inv in
+    ceil_bounds (d * m) inv;                              // inv*q >= d*m /\ inv*q < d*m+inv
+    let p = q * inv in                                    // == inv*q
+    // d*m <= p  and  p - m < d*m  (since p < d*m+inv <= d*m+m)
+    assert (d * m <= p);
+    assert (p < d * m + inv);
+    assert (p - m < d * m);
+    FStar.Math.Lemmas.division_definition p m d           // d == p / m, and fdiv p m == p/m (p>=0)
