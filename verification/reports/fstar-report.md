@@ -29,6 +29,9 @@ informational observation are documented.
 | FSM-9 | `Defuse.LockAuth.fst` | AUTH-002, DEF-ASY-005 | **Locked-account freeze**: a locked, non-forced account can never be debited, have its authorization changed (keys / auth-by-predecessor), or commit a nonce; its balances are **non-decreasing**; since every signed intent commits a nonce first, a locked account cannot execute any signed intent; the access-controlled **force** role is the sole lock bypass. | ✅ proved |
 | FSM-11 | `Defuse.Migration.fst` | MIG-001/002/003 | Account migration: magic-prefix discriminator is unambiguous (legacy prefix < u32::MAX); `decode(encode(a)) == a`; `V0`/`V1 → Account` preserve balances, keys, nonces, flags & lock (V0 defaults characterized); a migrated (legacy) nonce stays used and **cleanup can never resurrect it**. | ✅ proved |
 | FSM-12 | `Defuse.AsyncLifecycle.fst` | DEF-ASY-007/005/001 | **Async withdrawal lifecycle under an adversarial scheduler**: value is conserved (`Σ balance + in-flight + externally-settled` constant) across ANY interleaving of initiations/resolutions; each withdrawal settles **at most once** (repeat/late callbacks are no-ops); synchronous debit ⇒ no double-spend; refunds to accounts locked mid-flight stay conservative. | ✅ proved |
+| FSM-13 | `Defuse.WalletPromise.fst` | WAL-PRO-001 | **Wallet cannot be made to take over its own account**: an accepted wallet promise never self-calls and carries only safe actions (FunctionCall/Transfer/DeterministicStateInit); dangerous/account-mutating actions are rejected (and aren't even representable in the flat 3-variant `NearAction`); every fan-out promise is checked. | ✅ proved |
+| FSM-14 | `Defuse.WalletAuth.fst` | WAL-AUT-002 | **No lockout**: any op sequence preserves `signature_enabled ∨ extensions ≠ ∅` (at least one authorization path always remains); `check_lockout` blocks disabling the last path; redundant toggles are rejected. | ✅ proved |
+| FSM-15 | `Defuse.WalletNonce.fst` | WAL-NON-001/002 | **Dual-window nonce**: a committed message cannot be replayed while still valid — retention (≥ `timeout`) provably exceeds the validity window (`min(self.timeout, msg.timeout) ≤ timeout`), so the used-bit test rejects a live replay across ANY adversarial cleanup/rotation schedule. | ✅ proved |
 
 Every module also contains `kani::cover!`-style **witnesses** proving each relevant branch/boundary class
 is reachable (see §5).
@@ -60,6 +63,9 @@ make -C verification/fstar verify
 # ==== Defuse.LockAuth.fst ====     All verification conditions discharged successfully   (Phase 3)
 # ==== Defuse.AsyncLifecycle.fst == All verification conditions discharged successfully   (Phase 4)
 # ==== Defuse.Migration.fst ====    All verification conditions discharged successfully   (Phase 4)
+# ==== Defuse.WalletPromise.fst === All verification conditions discharged successfully   (Phase 5)
+# ==== Defuse.WalletAuth.fst ====   All verification conditions discharged successfully   (Phase 5)
+# ==== Defuse.WalletNonce.fst ====  All verification conditions discharged successfully   (Phase 5)
 # ALL F* MODULES VERIFIED
 ```
 
@@ -96,6 +102,10 @@ cargo test -p defuse-core --lib -- account          # 3 passed
 cargo test -p defuse --lib -- entry nonces
 # test result: ok. 8 passed (legacy_upgrade, versioned_upgrade::case_1_v0,
 #   legacy_nonces_cant_be_cleared, commit_existing_legacy_nonce, new_from_legacy, ...)
+
+# Phase 5 fidelity: wallet + flat NearPromise
+cargo test -p defuse-wallet          # pass (incl. Nonces::commit doctest: dual-window used-bit reject)
+cargo test -p defuse-near-promise    # 12 pass (incl. borsh_has_not_changed: flat promise layout)
 ```
 
 ---
@@ -162,6 +172,12 @@ and every `intents/*`) yielded **no custody/authorization bypass**:
   role as the only documented bypass.
 - Authorization for signed intents requires the recovered key to be registered for the signer
   (FSM-6 DS-3), and a locked signer cannot even commit a nonce (FSM-9 LA-2).
+- **Wallet (Phase 5).** The recently-reworked wallet promise path (#320) was audited adversarially: a
+  signed/extension request cannot make the wallet self-call or perform an account-mutating action —
+  `NearAction` is a flat 3-variant enum (AddKey/DeleteKey/DeployContract/CreateAccount/Stake are not even
+  representable) and `NearPromise` is flat (no nested-promise bypass), so `build_promise`'s single-level
+  allow-list + self-call check is complete (FSM-13). The wallet cannot be bricked (FSM-14) and a live
+  signed request cannot be replayed within its validity window (FSM-15).
 
 **Excluded (by request):** `escrow-swap`; the **known** NEP-245 MT-"split" protocol-fee bypass
 (`TokenDiff::token_fee` returns `ZERO` for `amount <= 1`); and unbounded gas/storage. These were not
@@ -203,6 +219,9 @@ by F\* (confirming the real proofs are non-vacuous):
 | `Mut_LockAuth.fst`   | make `internal_sub_balance` skip the lock (drain frozen acct)| rejected ✅ |
 | `Mut_AsyncLifecycle.fst`| drop the resolved-once guard (double-settle a withdrawal) | rejected ✅ |
 | `Mut_Migration.fst`  | invert the `implicit_public_key_removed` flag on V0 migration| rejected ✅ |
+| `Mut_WalletPromise.fst`| add the dangerous action to the allow-list                | rejected ✅ |
+| `Mut_WalletAuth.fst` | drop `check_lockout` (allow bricking the wallet)            | rejected ✅ |
+| `Mut_WalletNonce.fst`| shrink retention to a single window (allow valid replay)    | rejected ✅ |
 
 Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutations/run.sh`.
 
@@ -255,8 +274,12 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   interleaving; it does not model gas, receipt routing, or partial-batch rollback at the WASM level.
 - FSM-11 models migration at the custody/authority-field level (balances/keys/nonces/flags/lock), not the
   byte-exact borsh layout of `AccountState`.
-- **Escrow** (`escrow-swap`), **wallet**, and full **`simulate_intents` refinement** (SIM-*) remain out of
-  scope.
+- FSM-13/14/15 model the wallet at the authorization/promise/nonce level; the wallet's per-schema
+  signature verification (ed25519 / webauthn) and byte-exact `RequestMessage` hashing are trusted
+  (analogous to FSM-6's crypto assumptions). FSM-15 abstracts the rotation clock into an adversarial list
+  of cleanup times.
+- **Escrow** (`escrow-swap`), the **PoA** token/factory, and full **`simulate_intents` refinement**
+  (SIM-*) remain out of scope.
 - FSM-1's account-level conservation is proved at the net-sum granularity; a byte-exact model of the
   `HashMap` iteration order and `Transfers` event assembly is not attempted (not needed for the
   value-conservation property, which is order-independent).
@@ -281,7 +304,10 @@ Added under `verification/` only (no production code modified):
 - `verification/fstar/Defuse.LockAuth.fst` — FSM-9 (Phase 3).
 - `verification/fstar/Defuse.AsyncLifecycle.fst` — FSM-12 (Phase 4).
 - `verification/fstar/Defuse.Migration.fst` — FSM-11 (Phase 4).
-- `verification/fstar/mutations/*` — non-vacuity checks (11) + `run.sh`.
+- `verification/fstar/Defuse.WalletPromise.fst` — FSM-13 (Phase 5).
+- `verification/fstar/Defuse.WalletAuth.fst` — FSM-14 (Phase 5).
+- `verification/fstar/Defuse.WalletNonce.fst` — FSM-15 (Phase 5).
+- `verification/fstar/mutations/*` — non-vacuity checks (14) + `run.sh`.
 - `verification/fstar/{Makefile,README.md,install.sh,env.sh,.gitignore}` — reproducible toolchain.
 - `verification/reports/fstar-report.md` — this report.
 - `verification/proof-index.md` — cross-references to FSM-1..5 (doc update).

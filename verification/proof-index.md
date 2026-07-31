@@ -94,6 +94,14 @@ non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
 - **FSM-12 (`Defuse.AsyncLifecycle.fst`) — Async interleavings:** value conservation across ANY
   adversarial schedule of withdrawal initiations/resolutions; at-most-once settlement; no double-spend;
   refund-under-lock safe. Covers DEF-ASY-007/005/001 (operational model).
+- **FSM-13 (`Defuse.WalletPromise.fst`) — Wallet promise auth:** an accepted wallet promise never
+  self-calls nor carries an account-mutating action (flat 3-variant `NearAction`, flat `NearPromise`,
+  allow-list + self-call check); fan-out checked. Covers WAL-PRO-001.
+- **FSM-14 (`Defuse.WalletAuth.fst`) — Wallet no-lockout:** every op sequence preserves at least one
+  authorization path (signature or an extension). Covers WAL-AUT-002.
+- **FSM-15 (`Defuse.WalletNonce.fst`) — Wallet dual-window nonce:** a live signed request cannot be
+  replayed (retention ≥ validity window across any rotation schedule; `min` window bound). Covers
+  WAL-NON-001/002.
 
 ## Wallet
 
