@@ -137,3 +137,28 @@ let floor_le_ceil (n:int) (d:pos)
 let ceil_bounds (n:nat) (d:pos)
   : Lemma (d * (cdiv n d) >= n /\ d * (cdiv n d) < n + d)
   = ()
+
+/// Monotonicity of floor/ceil division on non-negative dividends.
+let fdiv_monotone (n1 n2 : int) (d:pos)
+  : Lemma (requires 0 <= n1 /\ n1 <= n2) (ensures fdiv n1 d <= fdiv n2 d)
+  = FStar.Math.Lemmas.lemma_div_le n1 n2 d
+
+let cdiv_monotone (n1 n2 : int) (d:pos)
+  : Lemma (requires 0 <= n1 /\ n1 <= n2) (ensures cdiv n1 d <= cdiv n2 d)
+  = FStar.Math.Lemmas.lemma_div_le (n1 + d - 1) (n2 + d - 1) d
+
+/// If p <= d then floor(a*p/d) <= a  (a, p non-negative).
+let fdiv_upper (a p : nat) (d:pos)
+  : Lemma (requires p <= d) (ensures fdiv (a * p) d <= a)
+  = FStar.Math.Lemmas.lemma_mult_le_left a p d;       // a*p <= a*d
+    FStar.Math.Lemmas.lemma_div_le (a * p) (a * d) d; // (a*p)/d <= (a*d)/d
+    FStar.Math.Lemmas.cancel_mul_div a d              // (a*d)/d == a
+
+/// If p <= d then ceil(a*p/d) <= a  (a, p non-negative).
+let cdiv_upper (a p : nat) (d:pos)
+  : Lemma (requires p <= d) (ensures cdiv (a * p) d <= a)
+  = ceil_bounds (a * p) d;                             // d*q < a*p + d
+    FStar.Math.Lemmas.lemma_mult_le_left a p d;        // a*p <= a*d
+    FStar.Math.Lemmas.distributivity_add_left a 1 d;   // (a+1)*d = a*d + d
+    let q = cdiv (a * p) d in
+    if q > a then FStar.Math.Lemmas.lemma_mult_le_left d (a + 1) q else ()
