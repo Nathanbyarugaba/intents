@@ -27,6 +27,8 @@ informational observation are documented.
 | FSM-7 | `Defuse.MtResolve.fst` | DEF-ASY-003 | MT `mt_resolve_transfer` per-item conservation `used + refund == amount` even under adversarial callbacks (over-reported refund, wrong-length vector → full-refund fallback); receiver→sender move is value-preserving; over a duplicated-token sequence the receiver is **never overdrawn**. | ✅ proved |
 | FSM-8 | `Defuse.NftResolve.fst` | DEF-ASY-002 | NFT `nft_resolve_withdraw` unit is **either used or refunded, never both nor lost** (`receiver_units + sender_units == 1`); the failed-`nft_transfer_call` "keep" branch is characterized. | ✅ proved |
 | FSM-9 | `Defuse.LockAuth.fst` | AUTH-002, DEF-ASY-005 | **Locked-account freeze**: a locked, non-forced account can never be debited, have its authorization changed (keys / auth-by-predecessor), or commit a nonce; its balances are **non-decreasing**; since every signed intent commits a nonce first, a locked account cannot execute any signed intent; the access-controlled **force** role is the sole lock bypass. | ✅ proved |
+| FSM-11 | `Defuse.Migration.fst` | MIG-001/002/003 | Account migration: magic-prefix discriminator is unambiguous (legacy prefix < u32::MAX); `decode(encode(a)) == a`; `V0`/`V1 → Account` preserve balances, keys, nonces, flags & lock (V0 defaults characterized); a migrated (legacy) nonce stays used and **cleanup can never resurrect it**. | ✅ proved |
+| FSM-12 | `Defuse.AsyncLifecycle.fst` | DEF-ASY-007/005/001 | **Async withdrawal lifecycle under an adversarial scheduler**: value is conserved (`Σ balance + in-flight + externally-settled` constant) across ANY interleaving of initiations/resolutions; each withdrawal settles **at most once** (repeat/late callbacks are no-ops); synchronous debit ⇒ no double-spend; refunds to accounts locked mid-flight stay conservative. | ✅ proved |
 
 Every module also contains `kani::cover!`-style **witnesses** proving each relevant branch/boundary class
 is reachable (see §5).
@@ -56,6 +58,8 @@ make -C verification/fstar verify
 # ==== Defuse.MtResolve.fst ====    All verification conditions discharged successfully   (Phase 2)
 # ==== Defuse.NftResolve.fst ====   All verification conditions discharged successfully   (Phase 2)
 # ==== Defuse.LockAuth.fst ====     All verification conditions discharged successfully   (Phase 3)
+# ==== Defuse.AsyncLifecycle.fst == All verification conditions discharged successfully   (Phase 4)
+# ==== Defuse.Migration.fst ====    All verification conditions discharged successfully   (Phase 4)
 # ALL F* MODULES VERIFIED
 ```
 
@@ -86,6 +90,12 @@ cargo test -p defuse-core --lib -- token_diff deltas amounts
 cargo test -p defuse-nep413 -p defuse-erc191 -p defuse-tip191 -p defuse-sep53   # all pass
 cargo test -p defuse-core --lib -- payload
 # test result: ok. 3 passed (payload::multi::raw_ed25519, payload::webauthn::{p256,ed25519})
+
+# Phase 3/4 fidelity: account/lock + migration + cross-migration nonces
+cargo test -p defuse-core --lib -- account          # 3 passed
+cargo test -p defuse --lib -- entry nonces
+# test result: ok. 8 passed (legacy_upgrade, versioned_upgrade::case_1_v0,
+#   legacy_nonces_cant_be_cleared, commit_existing_legacy_nonce, new_from_legacy, ...)
 ```
 
 ---
@@ -108,6 +118,14 @@ cargo test -p defuse-core --lib -- payload
 - **Abstraction boundaries.** The pure models intentionally omit NEAR promise interleavings, gas/storage,
   serialization byte-exactness (beyond the nonce layout needed for FSM-4), and cross-contract effects.
   FSM-5/7/8 model the synchronous resolver decision tables only.
+- **NEAR runtime assumptions (FSM-12).** The model trusts the NEAR guarantees that a `.then(...)`
+  callback fires **exactly once** and that `#[private]` restricts it to the contract itself; the resolver
+  removing/marking the pending withdrawal is what makes a repeat/late callback a no-op. The model is a
+  single-token/-account operational abstraction; conservation generalizes pointwise across
+  (account, token). Gas/storage are out of scope.
+- **Migration assumptions (FSM-11).** A legacy `AccountV0` never begins with the 4-byte
+  `VERSIONED_MAGIC_PREFIX = u32::MAX` (its leading bytes are a `Box<[u8]>` length `< u32::MAX`), as
+  documented in `entry/mod.rs`. Balances/keys/state are modeled as opaque preserved fields.
 - **Crypto assumptions (FSM-6).** `sha256` is modeled as **injective** (a symbolic stand-in for collision
   resistance) with a 32-byte output; `ed25519`/`secp256k1`/`p256` are trusted primitives (consistent with
   `verification/assumptions.md` #3). A well-formed `DefusePayload` JSON body is assumed `> 32` bytes
@@ -183,6 +201,8 @@ by F\* (confirming the real proofs are non-vacuous):
 | `Mut_MtResolve.fst`  | drop the `min(amount)` refund cap (over-report inflates)    | rejected ✅ |
 | `Mut_NftResolve.fst` | refund the NFT unit regardless of `used` (duplication)      | rejected ✅ |
 | `Mut_LockAuth.fst`   | make `internal_sub_balance` skip the lock (drain frozen acct)| rejected ✅ |
+| `Mut_AsyncLifecycle.fst`| drop the resolved-once guard (double-settle a withdrawal) | rejected ✅ |
+| `Mut_Migration.fst`  | invert the `implicit_public_key_removed` flag on V0 migration| rejected ✅ |
 
 Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutations/run.sh`.
 
@@ -231,7 +251,12 @@ Reproduce: `source verification/fstar/env.sh && bash verification/fstar/mutation
   (`authenticatorData ‖ sha256(clientDataJSON)`, challenge = the payload hash) is not fully modeled; it is
   argued informally to be distinct (length ≥ 69 vs the 32-byte digests) and is separated from the
   secp256k1 standards by curve. A byte-exact WebAuthn model is a follow-up.
-- **Escrow** (`escrow-swap`), **wallet**, and **migration/simulation** (MIG-*/SIM-*) remain out of scope.
+- FSM-12 abstracts NEAR promise scheduling into an operational state machine with an adversarial action
+  interleaving; it does not model gas, receipt routing, or partial-batch rollback at the WASM level.
+- FSM-11 models migration at the custody/authority-field level (balances/keys/nonces/flags/lock), not the
+  byte-exact borsh layout of `AccountState`.
+- **Escrow** (`escrow-swap`), **wallet**, and full **`simulate_intents` refinement** (SIM-*) remain out of
+  scope.
 - FSM-1's account-level conservation is proved at the net-sum granularity; a byte-exact model of the
   `HashMap` iteration order and `Transfers` event assembly is not attempted (not needed for the
   value-conservation property, which is order-independent).
@@ -254,7 +279,9 @@ Added under `verification/` only (no production code modified):
 - `verification/fstar/Defuse.MtResolve.fst` — FSM-7 (Phase 2).
 - `verification/fstar/Defuse.NftResolve.fst` — FSM-8 (Phase 2).
 - `verification/fstar/Defuse.LockAuth.fst` — FSM-9 (Phase 3).
-- `verification/fstar/mutations/*` — non-vacuity checks (9) + `run.sh`.
+- `verification/fstar/Defuse.AsyncLifecycle.fst` — FSM-12 (Phase 4).
+- `verification/fstar/Defuse.Migration.fst` — FSM-11 (Phase 4).
+- `verification/fstar/mutations/*` — non-vacuity checks (11) + `run.sh`.
 - `verification/fstar/{Makefile,README.md,install.sh,env.sh,.gitignore}` — reproducible toolchain.
 - `verification/reports/fstar-report.md` — this report.
 - `verification/proof-index.md` — cross-references to FSM-1..5 (doc update).

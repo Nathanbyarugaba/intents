@@ -41,6 +41,8 @@ make -C verification/fstar Defuse.Fees  # prove a single module
 | `Defuse.MtResolve.fst`   | DEF-ASY-003, FSM-7       | MT resolve per-item conservation & callback vector-shape safety.        |
 | `Defuse.NftResolve.fst`  | DEF-ASY-002, FSM-8       | NFT resolve: unit is either used or refunded, never both nor lost.      |
 | `Defuse.LockAuth.fst`    | AUTH-002/DEF-ASY-005, FSM-9 | Locked account is frozen (no debit/auth-change/nonce); force is the sole bypass. |
+| `Defuse.Migration.fst`   | MIG-001/002/003, FSM-11  | Migration disambiguation/round-trip/field preservation; legacy nonces never resurrected. |
+| `Defuse.AsyncLifecycle.fst`| DEF-ASY-007/005/001, FSM-12 | Async withdrawal value conservation + at-most-once settlement under any interleaving. |
 
 ## Explicit exclusions (by request)
 

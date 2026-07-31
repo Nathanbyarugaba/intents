@@ -87,6 +87,13 @@ non-vacuity–checked by a mutation under `verification/fstar/mutations/`.
   debited, cannot change authorization, and cannot commit a nonce (so it cannot execute any signed
   intent); balances are non-decreasing; the access-controlled force role is the sole bypass. Covers
   AUTH-002 / DEF-ASY-005. Records the SIM-001 add-zero simulate-vs-real observation.
+- **FSM-11 (`Defuse.Migration.fst`) — Migration integrity:** magic-prefix disambiguation (legacy <
+  u32::MAX), `decode(encode)==id`, V0/V1→Account field preservation (balances/keys/nonces/flags/lock),
+  and cross-migration nonce replay protection (legacy nonce always used; cleanup can't resurrect).
+  Covers MIG-001/002/003.
+- **FSM-12 (`Defuse.AsyncLifecycle.fst`) — Async interleavings:** value conservation across ANY
+  adversarial schedule of withdrawal initiations/resolutions; at-most-once settlement; no double-spend;
+  refund-under-lock safe. Covers DEF-ASY-007/005/001 (operational model).
 
 ## Wallet
 
